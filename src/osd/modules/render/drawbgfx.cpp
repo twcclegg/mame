@@ -68,6 +68,40 @@ extern void *GetOSWindow(void *wincontroller);
 #include <limits>
 
 
+#if defined(SDLMAME_SDL3) && (defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_VISIONOS))
+//============================================================
+//  UIKit: bgfx's Metal backend wants a CAMetalLayer as the
+//  native window handle.  Create one SDL Metal view per window
+//  and keep it in the window's properties so it is destroyed
+//  along with the window.
+//============================================================
+
+static void *sdlUIKitMetalLayer(SDL_Window *window)
+{
+	static char const *const METAL_VIEW_PROPERTY = "mame.bgfx.metal_view";
+
+	SDL_PropertiesID const props = SDL_GetWindowProperties(window);
+	auto view = SDL_MetalView(SDL_GetPointerProperty(props, METAL_VIEW_PROPERTY, nullptr));
+	if (!view)
+	{
+		view = SDL_Metal_CreateView(window);
+		if (!view)
+		{
+			osd_printf_error("BGFX: Error creating Metal view: %s\n", SDL_GetError());
+			return nullptr;
+		}
+		SDL_SetPointerPropertyWithCleanup(
+				props,
+				METAL_VIEW_PROPERTY,
+				view,
+				[] (void *userdata, void *value) { SDL_Metal_DestroyView(SDL_MetalView(value)); },
+				nullptr);
+	}
+	return SDL_Metal_GetLayer(view);
+}
+#endif
+
+
 //============================================================
 //  Renderer interface to parent module
 //============================================================
@@ -433,6 +467,13 @@ bool video_bgfx::set_platform_data(bgfx::PlatformData &platform_data, osd_window
 	platform_data.ndt = nullptr;
 	platform_data.nwh = SDL_GetPointerProperty(winProps, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, NULL);
 #endif
+#if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_VISIONOS)
+	(void)winProps;
+	platform_data.ndt = nullptr;
+	platform_data.nwh = sdlUIKitMetalLayer(dynamic_cast<sdl_window_info const &>(window).platform_window());
+	if (!platform_data.nwh)
+		return false;
+#endif
 #endif // defined(OSD_*)
 
 	platform_data.context = nullptr;
@@ -578,6 +619,12 @@ static std::pair<void *, bool> sdlNativeWindowHandle(SDL_Window *window)
 #endif
 #if defined(SDL_PLATFORM_ANDROID)
 		return std::make_pair(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, NULL), true);
+#endif
+#if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_VISIONOS)
+	{
+		void *const layer = sdlUIKitMetalLayer(window);
+		return std::make_pair(layer, layer != nullptr);
+	}
 #endif
 		return std::make_pair(nullptr, false);
 }

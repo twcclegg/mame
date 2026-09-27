@@ -2426,7 +2426,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				m_samplerDescriptor.maxAnisotropy =  (0 != (_flags & (BGFX_SAMPLER_MIN_ANISOTROPIC|BGFX_SAMPLER_MAG_ANISOTROPIC) ) ) ? m_mainFrameBuffer.m_swapChain->m_maxAnisotropy : 1;
 
 				if (m_macOS11Runtime
-				|| [m_device supportsFeatureSet:(MTLFeatureSet)4 /*MTLFeatureSet_iOS_GPUFamily3_v1*/])
+				|| m_device.supportsFeatureSet( (MTLFeatureSet)4 /*MTLFeatureSet_iOS_GPUFamily3_v1*/) )
 				{
 					const uint32_t cmpFunc = (_flags&BGFX_SAMPLER_COMPARE_MASK)>>BGFX_SAMPLER_COMPARE_SHIFT;
 					m_samplerDescriptor.compareFunction = 0 == cmpFunc

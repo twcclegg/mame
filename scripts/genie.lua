@@ -165,6 +165,7 @@ newoption {
 		{ "openbsd",       "OpenBSD"                },
 		{ "linux",         "Linux"                  },
 		{ "macosx",        "OSX"                    },
+		{ "visionos",      "visionOS"               },
 		{ "windows",       "Windows"                },
 		{ "haiku",         "Haiku"                  },
 	},

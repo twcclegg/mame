@@ -22,6 +22,8 @@
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <termios.h>
 #include <libutil.h>
+#elif defined(SDLMAME_VISIONOS)
+// no pseudo-terminals for sandboxed apps
 #elif defined(__NetBSD__) || defined(__OpenBSD__) || defined(__APPLE__)
 #include <termios.h>
 #include <util.h>
@@ -106,9 +108,9 @@ bool posix_check_ptty_path(std::string const &path) noexcept
 
 std::error_condition posix_open_ptty(std::uint32_t openflags, osd_file::ptr &file, std::uint64_t &filesize, std::string &name) noexcept
 {
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(SDLMAME_VISIONOS)
 	return std::errc::not_supported; // TODO: revisit this error code
-#else // defined(__ANDROID__)
+#else // defined(__ANDROID__) || defined(SDLMAME_VISIONOS)
 	struct termios tios;
 	std::memset(&tios, 0, sizeof(tios));
 	tios.c_iflag = 0;
@@ -212,5 +214,5 @@ std::error_condition posix_open_ptty(std::uint32_t openflags, osd_file::ptr &fil
 		::close(masterfd);
 		return std::errc::not_enough_memory;
 	}
-#endif // defined(__ANDROID__)
+#endif // defined(__ANDROID__) || defined(SDLMAME_VISIONOS)
 }

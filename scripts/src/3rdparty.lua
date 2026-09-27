@@ -57,7 +57,7 @@ if _OPTIONS["targetos"]=="windows" then
 		"__USE_MINGW_ANSI_STDIO=0",
 	}
 end
-if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
+if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
 	defines {
 		"HAVE_ARC4RANDOM",
 		"HAVE_ARC4RANDOM_BUF",
@@ -124,7 +124,7 @@ if _OPTIONS["targetos"]=="windows" then
 		MAME_DIR .. "3rdparty/expat/lib/random_rand_s.c",
 	}
 end
-if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
+if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
 	files {
 		MAME_DIR .. "3rdparty/expat/lib/random_arc4random.c",
 		MAME_DIR .. "3rdparty/expat/lib/random_arc4random_buf.c",
@@ -775,7 +775,7 @@ end
 			}
 		end
 
-		if _OPTIONS["targetos"]=="macosx" then
+		if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" then
 			defines {
 				"FLAC__SYS_DARWIN",
 			}
@@ -795,7 +795,7 @@ end
 		buildoptions {
 			"-Wno-enum-conversion",
 		}
-		if _OPTIONS["targetos"]=="macosx" then
+		if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" then
 			buildoptions_c {
 				"-Wno-unknown-attributes",
 			}
@@ -1235,6 +1235,11 @@ project "bx"
 			MAME_DIR .. "3rdparty/bx/include/compat/osx",
 		}
 
+	configuration { "visionos-*" }
+		includedirs {
+			MAME_DIR .. "3rdparty/bx/include/compat/ios",
+		}
+
 	configuration { "freebsd" }
 		includedirs {
 			MAME_DIR .. "3rdparty/bx/include/compat/freebsd",
@@ -1252,7 +1257,7 @@ project "bx"
 
 	configuration { }
 
-	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
+	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
 		if _OPTIONS["gcc"]~=nil and (string.find(_OPTIONS["gcc"], "clang") or string.find(_OPTIONS["gcc"], "asmjs")) then
 			buildoptions_cpp {
 				"-Wno-unused-private-field",
@@ -1316,6 +1321,11 @@ project "bimg"
 			MAME_DIR .. "3rdparty/bx/include/compat/osx",
 		}
 
+	configuration { "visionos-*" }
+		includedirs {
+			MAME_DIR .. "3rdparty/bx/include/compat/ios",
+		}
+
 	configuration { "freebsd" }
 		includedirs {
 			MAME_DIR .. "3rdparty/bx/include/compat/freebsd",
@@ -1342,7 +1352,7 @@ project "bimg"
 
 	configuration { }
 
-	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
+	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
 		if _OPTIONS["gcc"]~=nil and (string.find(_OPTIONS["gcc"], "clang") or string.find(_OPTIONS["gcc"], "asmjs")) then
 			buildoptions_cpp {
 				"-Wno-unused-const-variable",
@@ -1478,6 +1488,11 @@ end
 			MAME_DIR .. "3rdparty/bx/include/compat/osx",
 		}
 
+	configuration { "visionos-*" }
+		includedirs {
+			MAME_DIR .. "3rdparty/bx/include/compat/ios",
+		}
+
 	configuration { "freebsd" }
 		includedirs {
 			MAME_DIR .. "3rdparty/bx/include/compat/freebsd",
@@ -1525,7 +1540,7 @@ end
 		end
 	end
 
-	if _OPTIONS["targetos"]=="macosx" or  _OPTIONS["targetos"]=="linux" then
+	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="linux" then
 		if _OPTIONS["gcc"]~=nil and string.find(_OPTIONS["gcc"], "clang") then
 			buildoptions {
 				"-Wno-switch",
@@ -1600,6 +1615,22 @@ end
 		files {
 			MAME_DIR .. "3rdparty/bgfx/src/glcontext_eagl.mm",
 			MAME_DIR .. "3rdparty/bgfx/src/glcontext_nsgl.mm",
+			MAME_DIR .. "3rdparty/bgfx/src/renderer_mtl.mm",
+		}
+		buildoptions {
+			"-x objective-c++",
+			"-D BGFX_CONFIG_MULTITHREADED=0",
+		}
+	end
+	if _OPTIONS["targetos"]=="visionos" then
+		-- Metal is the only renderer available on visionOS
+		defines {
+			"BGFX_CONFIG_RENDERER_METAL=1",
+			"BGFX_CONFIG_RENDERER_OPENGL=0",
+			"BGFX_CONFIG_RENDERER_OPENGLES=0",
+			"BGFX_CONFIG_RENDERER_VULKAN=0",
+		}
+		files {
 			MAME_DIR .. "3rdparty/bgfx/src/renderer_mtl.mm",
 		}
 		buildoptions {

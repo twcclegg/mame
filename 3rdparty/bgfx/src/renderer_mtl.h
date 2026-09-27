@@ -276,7 +276,13 @@ namespace bgfx { namespace mtl
 	MTL_CLASS(Device)
 		bool supportsFeatureSet(MTLFeatureSet _featureSet)
 		{
+#if BX_PLATFORM_VISIONOS
+			// MAME: every visionOS device is Apple GPU family 8 or later, which
+			// covers all iOS feature sets; macOS feature sets start at 10000
+			return NSUInteger(_featureSet) < 10000;
+#else
 			return [m_obj supportsFeatureSet:_featureSet];
+#endif
 		}
 
 		id<MTLLibrary> newLibraryWithData(const void* _data)

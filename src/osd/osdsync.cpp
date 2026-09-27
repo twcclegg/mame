@@ -27,7 +27,7 @@
 
 #include "eminline.h"
 
-#if defined(SDLMAME_LINUX) || defined(SDLMAME_BSD) || defined(SDLMAME_HAIKU) || defined(SDLMAME_EMSCRIPTEN) || defined(SDLMAME_MACOSX)
+#if defined(SDLMAME_LINUX) || defined(SDLMAME_BSD) || defined(SDLMAME_HAIKU) || defined(SDLMAME_EMSCRIPTEN) || defined(SDLMAME_DARWIN)
 #include <pthread.h>
 #endif
 

@@ -1259,6 +1259,48 @@ android-x64: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64/Make
 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64 config=$(CONFIG)
 
 #-------------------------------------------------
+# visionOS (device and simulator)
+#
+# Cross-compiles the SDL3 OSD for visionOS using the Xcode toolchain.
+# Needs SDL3.xcframework with xros slices (default location
+# /Library/Frameworks/SDL3.xcframework, override with
+# SDL_XCFRAMEWORK_PATH=...).  The binary lands in
+# build/visionos-*/bin; visionos/bundle.sh wraps it into an .app.
+# See visionos/README.md.
+#-------------------------------------------------
+
+VISIONOS_PARAMS := --osd=sdl3 --targetos=visionos --PLATFORM=arm64 --NOASM=1
+ifdef SDL_XCFRAMEWORK_PATH
+VISIONOS_PARAMS += --SDL_XCFRAMEWORK_PATH='$(SDL_XCFRAMEWORK_PATH)'
+endif
+ifdef VISIONOS_MIN_VERSION
+VISIONOS_PARAMS += --with-visionos='$(VISIONOS_MIN_VERSION)'
+endif
+
+.PHONY: visionos-xcode
+visionos-xcode:
+ifneq ($(OS),macosx)
+	$(error visionOS builds need a Mac with Xcode)
+endif
+	$(eval CLANG_VERSION := $(shell xcrun --sdk xros clang -dumpversion 2> /dev/null))
+
+$(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-clang/Makefile: makefile $(SCRIPTS) $(GENIE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=visionos-clang --gcc_version=$(CLANG_VERSION) $(VISIONOS_PARAMS) $(MAKETYPE)
+
+.PHONY: visionos
+visionos: visionos-xcode generate $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-clang/Makefile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-clang config=$(CONFIG) precompile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-clang config=$(CONFIG)
+
+$(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-sim-clang/Makefile: makefile $(SCRIPTS) $(GENIE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=visionos-sim-clang --gcc_version=$(CLANG_VERSION) $(VISIONOS_PARAMS) $(MAKETYPE)
+
+.PHONY: visionos-sim
+visionos-sim: visionos-xcode generate $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-sim-clang/Makefile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-sim-clang config=$(CONFIG) precompile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-sim-clang config=$(CONFIG)
+
+#-------------------------------------------------
 # asmjs / Emscripten
 #-------------------------------------------------
 

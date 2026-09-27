@@ -4,6 +4,13 @@ Status: research only, nothing is built yet. Written from a Linux container, so
 every claim about Xcode, SDKs or device behaviour is marked **[verify on Mac]**
 where it hasn't been checked against a real toolchain.
 
+> **Progress (2026-09-27):** first-light build support is now in the tree. It's
+> untested on a Mac. See [README.md](README.md) for build steps and the file list:
+> the toolchains, `make visionos` / `make visionos-sim`, the bx visionOS detection
+> patch, the UIKit Metal-layer branch in `drawbgfx.cpp`, sandbox paths, and
+> `bundle.sh` for app bundling and signing. Hardware is confirmed as an **M2**
+> Vision Pro.
+
 Goals, in order:
 1. **Run.** Build MAME for visionOS and show a game in a window in the Shared Space.
 2. **Display.** Present the game properly: resizable window, then a spatial screen or cabinet.
@@ -198,7 +205,7 @@ on visionOS) as a final pass in the RealityKit presenter.
 2. **Scope:** the full MAME driver list, or a curated subset (arcade only)? This affects build time, app size, and how much DRC performance matters.
 3. **"3D upscaling":** higher internal resolution for polygon games, stereo depth for 2D games, or both?
 4. **App shell:** is SDL (quick, UIKit, Shared Space window only) fine as a stepping stone, or should we go straight to a SwiftUI shell with a native OSD?
-5. **Hardware:** which Vision Pro chip (M2 or M5)? That matters for the non-JIT performance budget.
+5. ~~**Hardware:**~~ answered: **M2**. Budget accordingly. Interpreted classic systems will be fine. With the C DRC backend, heavy recompiler-era systems (Model 3, Naomi, Saturn, N64, Seattle/Vegas) will likely fall short of full speed, and the frame budget also has to cover rendering at visionOS's 90 Hz compositor rate.
 
 ## References
 - SDL3 visionOS platform macro: https://wiki.libsdl.org/SDL3/SDL_PLATFORM_VISIONOS
