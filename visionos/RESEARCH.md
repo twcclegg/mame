@@ -4,17 +4,21 @@ Status: research only, nothing is built yet. Written from a Linux container, so
 every claim about Xcode, SDKs or device behaviour is marked **[verify on Mac]**
 where it hasn't been checked against a real toolchain.
 
-> **Progress (2026-09-27):** first-light build support is now in the tree, and
-> `make visionos` / `make visionos-sim` both compile and link cleanly on a
-> real Mac (Xcode 27, visionOS SDK 27.0), and `bundle.sh sim` produces a valid,
-> codesigned `MAME-sim.app`. See [README.md](README.md) for build steps, the
-> two small fixes that were needed (Lua's `os.execute`, sqlite3's
-> `gethostuuid` probe), a required upstream SDL3 patch, and the file list.
-> **Still unverified: actually running it.** This build machine's
-> CoreSimulator is out of date relative to Xcode 27, so the Simulator won't
-> launch here — milestone 2 (Pac-Man on screen) needs a Mac where
-> `xcrun simctl list devicetypes` doesn't hang. Hardware is confirmed as an
-> **M2** Vision Pro.
+> **Progress (2026-09-27): it runs.** `MAME-sim.app` launches in the visionOS
+> 26.5 Simulator and renders MAME's real system-selection UI as a Metal-backed
+> window floating in the Shared Space — goal 1 (Run) and the first half of
+> goal 2 (Display: a window in the Shared Space) are done. Getting there took
+> four fixes total (two build-only, two needed to actually launch): Lua's
+> `os.execute`, sqlite3's `gethostuuid` probe, building SDL from ≥3.4.0 instead
+> of 3.2.x (3.2.x has no UIScene support and visionOS fatally traps apps that
+> lack it), and a real, platform-agnostic MAME bug in `drawsdl3accel.cpp`
+> (claimed `FLAG_SDL_NEEDS_OPENGL` when it doesn't actually need an
+> OpenGL-flagged window, which broke window creation on any GL-less
+> platform). See [README.md](README.md) for details and the file list.
+> SDL3's own GameController backend picked up a virtual gamepad with no extra
+> work. Still open: bgfx-on-Metal specifically (vs. the default SDL_Renderer
+> path, which does now work), actual gameplay with a loaded ROM, and device
+> (hardware) launch. Hardware is confirmed as an **M2** Vision Pro.
 
 Goals, in order:
 1. **Run.** Build MAME for visionOS and show a game in a window in the Shared Space.
@@ -194,7 +198,7 @@ on visionOS) as a final pass in the RealityKit presenter.
 ## 8. Proposed milestones (for the Mac agent)
 
 1. **Toolchain sanity:** ✅ done. SDL3.xcframework built from source with visionOS device+simulator slices (needed one upstream SDL3 patch, see README); `3rdparty` libs and all of MAME build and link for both `visionos-clang` and `visionos-sim-clang`.
-2. **Tiny MAME for the simulator:** binary and `.app` bundle exist, both for a single driver (`SOURCES=src/mame/pacman/pacman.cpp`) and for `SUBTARGET=tiny` (59 drivers, full netlist), but **not yet launched** — this build machine's CoreSimulator is out of date for Xcode 27, so `simctl`/Simulator.app don't work here. Needs a Mac where the Simulator actually runs to reach "Pac-Man on screen."
+2. **Tiny MAME for the simulator:** ✅ done, and launched. `MAME-sim.app` (built with `SOURCES=src/mame/pacman/pacman.cpp`) runs in the visionOS 26.5 Simulator (`xcrun simctl launch` + `xcrun simctl io screenshot`, no `Simulator.app` GUI needed — this Xcode install doesn't even ship one) and renders MAME's system-select UI as a floating Metal window in the Shared Space. Two blockers on the way, both now fixed: the build machine's CoreSimulator/Xcode version mismatch (fixed by the user updating macOS to 27.0, matching Xcode 27), and two runtime bugs (SDL's UIKit backend needing scene-lifecycle support — use SDL ≥3.4.0 — and a `FLAG_SDL_NEEDS_OPENGL` bug in `drawsdl3accel.cpp`). See README.md Status for the exact fixes. Not yet tried: an actual ROM (only the ROM-less frontend has been shown), and the `visionOS 27.0` Simulator runtime on this machine turned out to be broken (`liblaunch_sim.dylib could not be opened`) — 26.5 worked fine.
 3. **Device build:** ✅ compiles and links (`make visionos`). Code signing with a real dev team and on-device run are still untested.
 4. **bgfx Metal:** patch bx detection, add the UIKit branch in `drawbgfx.cpp`, `-video bgfx`, try the `xbr` / `crt-geom` chains. ✅ partially derisked: with no visionOS Simulator available on this build machine (see milestone 2), the same source tree was instead built natively for macOS (`make macosx_arm64_clang SOURCES=src/mame/pacman/pacman.cpp NOASM=1`, sdl3 OSD, same `MAME_NOASM=1`/C-DRC-backend config) and actually run. Both `-video accel` (SDL/OpenGL) and `-video bgfx -bgfx_backend metal` start cleanly, initialize CoreAudio/keyboard/mouse/lightgun/GameController, and reach a stable running frontend ("BGFX: Vector CRT renderer initialized", no crash). This doesn't exercise the UIKit-specific `CAMetalLayer` branch in `drawbgfx.cpp` (that needs the actual visionOS Simulator/device), but it confirms the shared bgfx/Metal, SDL3, and C-DRC-backend code in this tree is sound on real Apple Silicon. No screenshot could be taken (this build machine's display is asleep/headless and Screen Recording + Accessibility TCC permissions aren't grantable without an interactive GUI session), but the process stays alive and steady (no crash-loop) under both renderers.
 5. **Controller defaults and UI:** default ini/ctrlr for gamepad, lifecycle pause/resume, file import.

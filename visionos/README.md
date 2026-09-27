@@ -4,16 +4,27 @@ Experimental visionOS port. It uses the `sdl3` OSD and presents MAME as a flat
 window in the Shared Space. Background and the longer-term plan are in
 [RESEARCH.md](RESEARCH.md).
 
-**Status (2026-09-27):** builds and links cleanly on a real Mac (Xcode 27,
-visionOS SDK 27.0) for both `make visionos-sim` and `make visionos`, producing
-a valid, codesigned `MAME-sim.app` via `bundle.sh`. Not yet run: this machine's
-CoreSimulator service is out of date relative to Xcode 27
-(`CoreSimulator is out of date. Current version (1051.55.0) is older than
-build version (1171.7.0).`), which disables `simctl`/Simulator.app entirely
-until the host's Xcode/CoreSimulator install is reconciled (needs a system
-update or matching Xcode version; not fixable from here). So the app has
-never actually been launched — everything in "Things to verify" below is
-still open.
+**Status (2026-09-27): it runs.** `MAME-sim.app` launches in the visionOS 26.5
+Simulator and renders MAME's system-selection UI — a real Metal-backed window
+floating in the Shared Space, gamepad detected, audio/keyboard/mouse all
+initialized. Getting here took two fixes beyond the original build-only
+milestone:
+
+1. **Use SDL ≥ 3.4.0, not `release-3.2.x`.** The 3.2.x branch has zero UIScene
+   support in its UIKit backend. visionOS *requires* scene-lifecycle adoption
+   and fatally traps apps that skip it (`EXC_BREAKPOINT` in
+   `UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`, immediately
+   on launch — see crash detail below). SDL added a proper
+   `SDLUIKitSceneDelegate` at some point after 3.2.x; `release-3.4.16` (what
+   Homebrew currently ships) has it and needs no further patching for this.
+2. **`drawsdl3accel.cpp` claims `FLAG_SDL_NEEDS_OPENGL` it doesn't need**,
+   which made `-video accel` (the default) fail window creation outright on
+   any platform with no OpenGL at all. Fixed in this repo; see "What changed"
+   below. This is a real, platform-agnostic MAME bug the visionOS port just
+   happened to be the first to hit hard.
+
+Still open: device (hardware) launch is untested — everything below "still
+open" in **Things to verify** hasn't been exercised yet.
 
 Target hardware: Apple Vision Pro (M2). There's no JIT on visionOS, so the build
 always uses the C DRC backend (`NOASM=1`).
@@ -22,10 +33,17 @@ always uses the C DRC backend (`NOASM=1`).
 
 - A Mac with Xcode and the visionOS SDK and simulator installed (`xcrun --sdk xros --show-sdk-path` should print a path).
 - Python 3 (MAME's build needs it).
-- **SDL3.xcframework with visionOS slices.** The default location is `/Library/Frameworks/SDL3.xcframework`; override it with `SDL_XCFRAMEWORK_PATH=...`. It needs `xros-arm64` and `xros-arm64*-simulator` directories. If the release framework lacks them, build it yourself:
+- **SDL3.xcframework with visionOS slices, built from SDL ≥ 3.4.0.** Do not
+  use `release-3.2.x` — it has no UIScene support and the app will crash
+  instantly on launch (see Status above). The default xcframework location is
+  `/Library/Frameworks/SDL3.xcframework`; override it with
+  `SDL_XCFRAMEWORK_PATH=...`. It needs `xros-arm64` and `xros-arm64*-simulator`
+  directories (add a `macos-arm64_x86_64` one too if you also want to run the
+  same OSD natively on macOS for testing, as `Info.plist` there does not
+  affect the visionOS slices). Confirmed against `release-3.4.16`:
 
   ```sh
-  git clone --depth 1 --branch release-3.2.x https://github.com/libsdl-org/SDL.git
+  git clone --depth 1 --branch release-3.4.16 https://github.com/libsdl-org/SDL.git
   cd SDL
   xcodebuild archive -project Xcode/SDL/SDL.xcodeproj -scheme SDL3 \
       -destination "generic/platform=visionOS" \
@@ -38,21 +56,10 @@ always uses the C DRC backend (`NOASM=1`).
       -framework build/SDL3-xrsimulator.xcarchive/Products/Library/Frameworks/SDL3.framework \
       -output build/SDL3.xcframework
   ```
-  The scheme and archive paths above are confirmed against SDL's
-  `release-3.2.x` branch. One upstream SDL gap needs a local patch first:
-  `include/build_config/SDL_build_config_ios.h` unconditionally enables
-  `SDL_CAMERA_DRIVER_COREMEDIA` for every `SDL_PLATFORM_IOS` target (visionOS
-  sets that too, since `TARGET_OS_IPHONE` is 1 there), but the camera APIs it
-  calls are marked `unavailable(visionos)`, so `SDL_camera_coremedia.m` fails
-  to compile. It already excludes tvOS the same way; add visionOS next to it:
-  ```diff
-  -#ifndef SDL_PLATFORM_TVOS
-  +#if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS)
-   #define SDL_CAMERA_DRIVER_COREMEDIA 1
-   #endif
-  ```
-  MAME doesn't use SDL's camera API, so this is a correctness fix, not a
-  workaround. Worth reporting/fixing upstream in SDL.
+  No local SDL patching needed at this version: the `SDL_CAMERA_DRIVER_COREMEDIA`
+  build-config bug that affected `release-3.2.x` (it unconditionally enabled
+  SDL's camera backend on visionOS even though its APIs are marked
+  `unavailable(visionos)`) is already fixed upstream by 3.4.16.
 
 ## Build
 
@@ -98,13 +105,40 @@ visionos/bundle.sh device --sdl ... --bundle-id <your.bundle.id> \
 | App bundle and signing | `visionos/bundle.sh`, `visionos/Info.plist.in`, `visionos/ini/mame.ini` |
 | Lua's `os.execute()`: no `system()` on visionOS, same as iOS | `scripts/src/3rdparty.lua` (`LUA_USE_IOS` instead of `LUA_USE_POSIX`; `luaconf.h` already defines the latter when the former is set, so defining both fails with a macro-redefined error) |
 | sqlite3's `gethostuuid()` probe emits `#warning` on embedded Apple targets, which `-Werror` turns fatal | `scripts/src/3rdparty.lua` (`HAVE_GETHOSTUUID=0`) |
+| `drawsdl3accel` (the default `-video accel`) claimed `FLAG_SDL_NEEDS_OPENGL`, forcing an OpenGL-flagged window it never actually needs (`SDL_CreateRenderer` is called with a null/auto driver name, so it gets Metal); fatal on any platform with no OpenGL at all | `src/osd/modules/render/drawsdl3accel.cpp` — not visionOS-specific, a real bug on any such platform |
 
-## Things to verify once it actually runs
-Compiling and linking is confirmed (see Status above); nothing below has been
-exercised yet, because this build machine can't launch the Simulator.
-1. **SDL's UIKit backend and scenes.** visionOS may require a scene manifest (`UIApplicationSceneManifest`). If the app launches to nothing, compare against SDL's `Xcode/SDLTest` Info.plist for visionOS.
-2. **Main loop.** MAME's blocking loop under SDL's `UIApplicationMain` wrapper (SDL pumps the run loop in `SDL_PumpEvents`).
-3. **bgfx on Metal.** Whether `SDL_Metal_CreateView` works without `SDL_WINDOW_METAL`, and whether bgfx's iOS Metal path compiles for xros. (It does compile — `drawbgfx.cpp` built cleanly for both device and simulator — but it hasn't been run.)
-4. **No JIT.** `drc_cache` should log "Using W^X mode" and never actually execute from the cache with `drcbe_c`.
-5. **Audio.** The SDL3 audio backend (AVAudioSession), and whether it needs an audio session category set.
-6. **Running on a Mac whose CoreSimulator is current.** This one isn't a MAME issue: if `xcrun simctl list devicetypes` hangs or `xcodebuild` logs "CoreSimulator is out of date", the Simulator won't launch until the Mac's software (or Xcode version) is updated to match.
+## Things confirmed vs. still open
+
+Confirmed, via `xcrun simctl launch --console-pty` + `xcrun simctl io screenshot`
+on the visionOS 26.5 Simulator (`Apple Vision Pro` device), no `Simulator.app`
+GUI needed:
+- App launches, no crash, no `-video accel` window-creation failure.
+- `-video accel` selects Metal (`SDL renderer using driver metal` in the log)
+  and actually shows MAME's system-select UI as a floating window in the
+  Shared Space.
+- CoreAudio, keyboard, mouse, lightgun all initialize.
+- SDL3's GameController backend detects and maps a virtual gamepad
+  (`platform:visionOS` in the mapping string) with no extra work.
+- `MAME_NOASM=1` (the forced C DRC backend) is active, per the verbose log.
+
+Still open:
+1. **bgfx on Metal**, i.e. `-video bgfx` specifically (as opposed to the
+   default `-video accel`, which goes through `SDL_Renderer`, not bgfx). It
+   compiles for both device and simulator, and a *native macOS* smoke test of
+   the same bgfx/Metal code succeeded (see RESEARCH.md milestone 4), but the
+   visionOS-specific `CAMetalLayer`-from-UIKit branch in `drawbgfx.cpp` hasn't
+   actually been run yet. Try `-video bgfx -bgfx_screen_chains crt-geom`.
+2. **No JIT.** `drc_cache` should log "Using W^X mode" and never actually
+   execute from the cache with `drcbe_c`. Needs an actual driver+ROM to reach
+   that code path (the frontend UI alone doesn't).
+3. **Real gameplay.** Load an actual ROM and confirm input, sound, and the
+   emulation loop run at speed — everything so far is frontend-UI-only.
+4. **Device (hardware) launch.** Only the Simulator has been tried. Needs a
+   dev-team identity + provisioning profile for `bundle.sh device`.
+5. **visionOS 27.0 runtime instability on this machine.** A freshly-booted
+   `Apple Vision Pro` device on the `visionOS 27.0` runtime failed after one
+   launch attempt (`liblaunch_sim.dylib could not be opened`, `Malformed
+   bundle does not contain an identifier` on the runtime's own `.simruntime`
+   bundle) and needed a fallback to a `visionOS 26.5` device to make any
+   further progress. Unclear whether that's a bad runtime install or a
+   genuine bug; worth another look with a clean runtime install.
