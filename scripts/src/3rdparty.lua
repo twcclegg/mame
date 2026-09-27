@@ -969,9 +969,17 @@ if _OPTIONS["vs"]==nil then
 end
 
 	configuration { }
-	if (_OPTIONS["targetos"] ~= "windows") and (_OPTIONS["targetos"] ~= "asmjs") then
+	if (_OPTIONS["targetos"] ~= "windows") and (_OPTIONS["targetos"] ~= "asmjs") and (_OPTIONS["targetos"] ~= "visionos") then
 		defines {
 			"LUA_USE_POSIX",
+		}
+	end
+	-- visionOS (like iOS) has no 'system()'; os.execute() becomes a stub.
+	-- luaconf.h defines LUA_USE_POSIX itself when LUA_USE_IOS is set, so
+	-- don't also pass LUA_USE_POSIX above or the macro is redefined.
+	if _OPTIONS["targetos"]=="visionos" then
+		defines {
+			"LUA_USE_IOS",
 		}
 	end
 
@@ -1088,6 +1096,13 @@ project "sqlite3"
 			"-Wno-error=unused-but-set-variable",
 			"-Wno-error=unused-variable",
 		}
+	if _OPTIONS["targetos"]=="visionos" then
+		-- sqlite3.c's own gethostuuid() probe emits #warning on embedded
+		-- Apple targets; make it explicit instead of fighting -Werror.
+		defines {
+			"HAVE_GETHOSTUUID=0",
+		}
+	end
 if _OPTIONS["gcc"]~=nil then
 	if string.find(_OPTIONS["gcc"], "clang") or string.find(_OPTIONS["gcc"], "asmjs") or string.find(_OPTIONS["gcc"], "android") then
 		buildoptions_c {

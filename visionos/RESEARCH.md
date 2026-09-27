@@ -4,12 +4,17 @@ Status: research only, nothing is built yet. Written from a Linux container, so
 every claim about Xcode, SDKs or device behaviour is marked **[verify on Mac]**
 where it hasn't been checked against a real toolchain.
 
-> **Progress (2026-09-27):** first-light build support is now in the tree. It's
-> untested on a Mac. See [README.md](README.md) for build steps and the file list:
-> the toolchains, `make visionos` / `make visionos-sim`, the bx visionOS detection
-> patch, the UIKit Metal-layer branch in `drawbgfx.cpp`, sandbox paths, and
-> `bundle.sh` for app bundling and signing. Hardware is confirmed as an **M2**
-> Vision Pro.
+> **Progress (2026-09-27):** first-light build support is now in the tree, and
+> `make visionos` / `make visionos-sim` both compile and link cleanly on a
+> real Mac (Xcode 27, visionOS SDK 27.0), and `bundle.sh sim` produces a valid,
+> codesigned `MAME-sim.app`. See [README.md](README.md) for build steps, the
+> two small fixes that were needed (Lua's `os.execute`, sqlite3's
+> `gethostuuid` probe), a required upstream SDL3 patch, and the file list.
+> **Still unverified: actually running it.** This build machine's
+> CoreSimulator is out of date relative to Xcode 27, so the Simulator won't
+> launch here — milestone 2 (Pac-Man on screen) needs a Mac where
+> `xcrun simctl list devicetypes` doesn't hang. Hardware is confirmed as an
+> **M2** Vision Pro.
 
 Goals, in order:
 1. **Run.** Build MAME for visionOS and show a game in a window in the Shared Space.
@@ -188,9 +193,9 @@ on visionOS) as a final pass in the RealityKit presenter.
 
 ## 8. Proposed milestones (for the Mac agent)
 
-1. **Toolchain sanity:** install SDL3.xcframework (built with visionOS slices), then build `3rdparty` libs (zlib, expat, etc.) for `xros-simulator` with the new `toolchain.lua` entries.
-2. **Tiny MAME for the simulator:** `SOURCES=src/mame/pacman/pacman.cpp`, `-video soft`, `-uifontprovider none`, sound via SDL3. Xcode wrapper app with an Info.plist; ROMs in Documents. **Goal: Pac-Man in the visionOS simulator.**
-3. **Device build:** code signing and a dev team; confirm nothing tries to use JIT.
+1. **Toolchain sanity:** ✅ done. SDL3.xcframework built from source with visionOS device+simulator slices (needed one upstream SDL3 patch, see README); `3rdparty` libs and all of MAME build and link for both `visionos-clang` and `visionos-sim-clang`.
+2. **Tiny MAME for the simulator:** binary and `.app` bundle exist (`SOURCES=src/mame/pacman/pacman.cpp`), but **not yet launched** — this build machine's CoreSimulator is out of date for Xcode 27, so `simctl`/Simulator.app don't work here. Needs a Mac where the Simulator actually runs to reach "Pac-Man on screen."
+3. **Device build:** ✅ compiles and links (`make visionos`). Code signing with a real dev team and on-device run are still untested.
 4. **bgfx Metal:** patch bx detection, add the UIKit branch in `drawbgfx.cpp`, `-video bgfx`, try the `xbr` / `crt-geom` chains.
 5. **Controller defaults and UI:** default ini/ctrlr for gamepad, lifecycle pause/resume, file import.
 6. **Bigger driver set / full build:** check link time and app size; decide on a SUBTARGET.
