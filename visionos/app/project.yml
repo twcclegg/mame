@@ -47,4 +47,8 @@ targets:
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+          # Theater mode opens a second concurrent scene (an ImmersiveSpace
+          # alongside the main window), which visionOS refuses outright when
+          # this is false: "Unable to open an immersive space when the app
+          # does not support multiple scenes."
+          UIApplicationSupportsMultipleScenes: true
