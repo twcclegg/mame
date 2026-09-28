@@ -117,6 +117,7 @@ cd visionos/app && xcodegen && open MAMEVision.xcodeproj
   - `FrameView`: MTKView presenter with a 4-texture ring, aspect-fit by the game's intended aspect.
   - `GameControllerInput`: GCExtendedGamepad to `myosd_input_state`. Select+Start opens the menu, Select+L1 exits (ESC) and Select+R1 pauses.
   - Sound uses libmame's built-in AudioQueue output.
+- **Machine state access** (appended to `libmame.h`, backward compatible): a `machine_frame` callback once per emulated frame, `myosd_get_memory_share` / `_region`, `myosd_get_state_item` (a device's save-state variables), `myosd_read_memory` (side-effect-free) and `myosd_set/clear_analog_input`. `myosd_main` now honours `callbacks_size`. The first user is **[arkanoid3d/](arkanoid3d/README.md)**, the original arcade Arkanoid presented as a 3D RealityKit playfield, built from its video RAM each frame.
 - Unverified until a Mac builds it:
   - The Swift, Metal and RealityKit code has never been compiled. The `LowLevelTexture` / `TextureResource(from:)` calls in particular are written from Apple's docs and WWDC material.
   - Colours in theater mode: RealityKit may treat the `bgra8Unorm` texture as linear. If it looks washed out or too dark, try `bgra8Unorm_srgb`.
