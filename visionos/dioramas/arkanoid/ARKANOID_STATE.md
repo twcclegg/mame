@@ -229,7 +229,7 @@ pens are all black, offset +4,+4 for the Vaus and +2,+2 for capsules)
 | `0e8-0f1` | the Vaus materialising at the start of a life |
 | `0f4-103` | turning into the laser Vaus; `104`,`105` the laser Vaus |
 | `106-129` | the Vaus exploding (up to 3x3 sprites) |
-| `12a-17f` | enemies: 2 stacked sprites (16x16). Types by frames (`ark3d_enemy_type`): molecule `12a-13f`, cube `140-14f`, sphere `150-15f`, pyramid `160-16f`, cone `170-17f`. The cube is inferred from the ROM's graphics; the others were seen in play |
+| `12a-17f` | enemies: 2 stacked sprites (16x16), four types (`ark3d_enemy_type`), found by following each enemy's animation through the captures: molecule `12a-139` (8 frames), cube `146-159` (10, tumbling), pyramid `15a-16f` (11), cone `170-17f` (8). `13a-145` were never seen |
 | `180-1b7` | capsules: 7 letters x 8 rotation frames, in the order S C L E D B P, so the letter is `(code - 0x180) / 8` |
 | `1b8` | the ball |
 | `1bd` | a laser shot, rising 5 px a frame |

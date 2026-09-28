@@ -105,8 +105,7 @@ typedef enum {
 typedef enum {
     ARK3D_ENEMY_UNKNOWN = 0,
     ARK3D_ENEMY_MOLECULE,       // three balls
-    ARK3D_ENEMY_CUBE,
-    ARK3D_ENEMY_SPHERE,
+    ARK3D_ENEMY_CUBE,           // tumbling (some frames look round)
     ARK3D_ENEMY_PYRAMID,
     ARK3D_ENEMY_CONE
 } ark3d_enemy;

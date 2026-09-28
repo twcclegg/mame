@@ -106,8 +106,7 @@ final class VausModel: Entity {
 
 // MARK: - enemies
 
-/// One enemy: a shape per type, spinning and bobbing.  Colours follow the
-/// sprite's own where that helps (the sphere and cube take theirs).
+/// One enemy: a shape per type, spinning and bobbing.
 @MainActor
 final class EnemyModel: Entity {
     private var shapes: [Int: Entity] = [:]
@@ -129,10 +128,6 @@ final class EnemyModel: Entity {
         shapes[Int(ARK3D_ENEMY_CUBE.rawValue)] = shadowed(ModelEntity(
             mesh: .generateBox(size: 8 * px, cornerRadius: 1 * px),
             materials: [pbr(.systemTeal, metallic: 0.3, roughness: 0.25, clearcoat: 1)]))
-
-        shapes[Int(ARK3D_ENEMY_SPHERE.rawValue)] = shadowed(ModelEntity(
-            mesh: .generateSphere(radius: 5.5 * px),
-            materials: [pbr(.systemOrange, metallic: 0.2, roughness: 0.3, clearcoat: 1)]))
 
         shapes[Int(ARK3D_ENEMY_PYRAMID.rawValue)] = shadowed(ModelEntity(
             mesh: Self.pyramid(base: 11 * px, height: 10 * px),

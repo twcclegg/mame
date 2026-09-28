@@ -824,12 +824,13 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
 
 int ark3d_enemy_type(uint16_t code)
 {
-    // [game] the frames of each type, read off the ROM's graphics; the
-    // attract demo and rounds 1-2 show the molecule, sphere, pyramid and cone
-    if (code >= 0x12a && code < 0x140) return ARK3D_ENEMY_MOLECULE;
-    if (code >= 0x140 && code < 0x150) return ARK3D_ENEMY_CUBE;
-    if (code >= 0x150 && code < 0x160) return ARK3D_ENEMY_SPHERE;
-    if (code >= 0x160 && code < 0x170) return ARK3D_ENEMY_PYRAMID;
+    // [game] the four types, found by following each enemy's animation
+    // through captures of rounds 1-27 and the attract demo: molecule
+    // 12a-139 (8 frames), cube 146-159 (10), pyramid 15a-16f (11), cone
+    // 170-17f (8).  13a-145 were never seen; they sit with the cube.
+    if (code >= 0x12a && code < 0x13a) return ARK3D_ENEMY_MOLECULE;
+    if (code >= 0x13a && code < 0x15a) return ARK3D_ENEMY_CUBE;
+    if (code >= 0x15a && code < 0x170) return ARK3D_ENEMY_PYRAMID;
     if (code >= 0x170 && code < 0x180) return ARK3D_ENEMY_CONE;
     return ARK3D_ENEMY_UNKNOWN;
 }
