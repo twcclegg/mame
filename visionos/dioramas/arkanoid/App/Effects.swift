@@ -21,7 +21,8 @@ enum Effects {
         p.speed = 0.25 * scale
         p.speedVariation = 0.1 * scale
         p.timing = .once(warmUp: 0, emit: .init(duration: 0.05))
-        p.mainEmitter.birthRate = Float(count) / 0.05
+        p.mainEmitter.birthRate = 0
+        p.burstCount = count
         p.mainEmitter.lifeSpan = 0.45
         p.mainEmitter.lifeSpanVariation = 0.15
         p.mainEmitter.size = 0.0022 * scale
@@ -30,6 +31,7 @@ enum Effects {
         p.mainEmitter.blendMode = .additive
         p.mainEmitter.acceleration = [0, -0.6, 0]
         p.isEmitting = true
+        p.burst()
         e.components.set(p)
         parent.addChild(e)
         Task { @MainActor in

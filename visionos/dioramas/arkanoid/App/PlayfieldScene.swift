@@ -12,8 +12,11 @@
 // smooth at the display rate (90 Hz) although the game runs at 60.
 
 import Foundation
+import os
 import RealityKit
 import UIKit
+
+private let log = Logger(subsystem: "org.mamedev.diorama.arkanoid", category: "scene")
 
 @MainActor
 final class PlayfieldScene {
@@ -59,6 +62,9 @@ final class PlayfieldScene {
     private var lasers: [ModelEntity] = []
     private var smoothed: [ObjectIdentifier: SIMD2<Float>] = [:]
     private var debris: [(entity: ModelEntity, velocity: SIMD3<Float>, life: Float)] = []
+    /// Expanding, fading glows (breaks and explosions), driven per frame.
+    private var flashes: [(entity: ModelEntity, age: Float, duration: Float, size: Float)] = []
+    private var flashMesh: MeshResource?
     private var materials: [UInt32: RealityKit.Material] = [:]
     private var spin: Float = 0
     /// The previous decoded frame had a round on screen.  Bricks only shatter
@@ -365,6 +371,7 @@ final class PlayfieldScene {
         dropBricks(dt: dt)
         animate(dt: dt)
         updateDebris(dt: dt)
+        updateFlashes(dt: dt)
     }
 
     private func applyBricks() {
@@ -395,7 +402,7 @@ final class PlayfieldScene {
                 let key = UInt32(b.rgb.0) << 16 | UInt32(b.rgb.1) << 8 | UInt32(b.rgb.2) | UInt32(kind) << 24
                 if brickShown[r][c] != b.kind || brickColor[r][c] != key {
                     if flashing && brickShown[r][c] == b.kind && breaking {
-                        Effects.sparks(in: field, at: e.position + [0, Self.brickHeight / 2, 0], color: .white, count: 12, scale: 0.6)
+                        flash(at: e.position + [0, Self.brickHeight / 2, 0], color: .white, size: 12, duration: 0.2)
                     }
                     // a new layout (round start, or redrawn after a wipe) drops
                     // in row by row, far rows first
@@ -523,8 +530,9 @@ final class PlayfieldScene {
         // Vaus: materialises by growing, explodes into sparks
         let phase = s.vaus_phase
         if phase != vausPhase {
+            log.debug("vaus phase \(self.vausPhase) -> \(phase)")
             if phase == Int32(ARK3D_VAUS_EXPLODING.rawValue) {
-                Effects.sparks(in: field, at: local(vausX, s.vaus_y, 4), color: .orange, count: 150, scale: 2.5)
+                explodeVaus(at: local(vausX, s.vaus_y, 4 * Self.metresPerPixel))
             } else if phase == Int32(ARK3D_VAUS_APPEARING.rawValue) {
                 vausAppear = 0
             }
@@ -602,15 +610,71 @@ final class PlayfieldScene {
     /// A brick vanished from the grid: throw a few fragments of it around.
     private func shatter(_ brick: ModelEntity, color: UIColor) {
         Effects.sparks(in: field, at: brick.position + [0, Self.brickHeight / 2, 0], color: color)
-        guard let mat = brick.model?.materials.first, debris.count < 120 else { return }
+        flash(at: brick.position + [0, Self.brickHeight / 2, 0], color: color, size: 20, duration: 0.25)
+        guard let mat = brick.model?.materials.first else { return }
+        throwDebris(from: brick.position, material: mat, count: 6, speed: 0.35)
+    }
+
+    /// The Vaus blows up: a big flash, and its pieces flying.
+    private func explodeVaus(at p: SIMD3<Float>) {
+        Effects.sparks(in: field, at: p, color: .orange, count: 150, scale: 2.5)
+        flash(at: p, color: UIColor(red: 1, green: 0.6, blue: 0.2, alpha: 1), size: 70, duration: 0.6)
+        flash(at: p, color: .white, size: 30, duration: 0.25)
+        var red = PhysicallyBasedMaterial()
+        red.baseColor = .init(tint: UIColor(red: 0.8, green: 0.08, blue: 0.06, alpha: 1))
+        red.emissiveColor = .init(color: UIColor(red: 1, green: 0.3, blue: 0, alpha: 1))
+        red.emissiveIntensity = 1
+        var silver = PhysicallyBasedMaterial()
+        silver.baseColor = .init(tint: UIColor(white: 0.85, alpha: 1))
+        silver.metallic = .init(floatLiteral: 1)
+        silver.roughness = .init(floatLiteral: 0.2)
+        throwDebris(from: p, material: red, count: 10, speed: 0.6)
+        throwDebris(from: p, material: silver, count: 10, speed: 0.6)
+    }
+
+    private func throwDebris(from p: SIMD3<Float>, material: RealityKit.Material, count: Int, speed: Float) {
+        guard debris.count < 160 else { return }
         let s = Self.metresPerPixel
         let mesh = MeshResource.generateBox(size: 2.5 * s)
-        for i in 0..<6 {
-            let piece = ModelEntity(mesh: mesh, materials: [mat])
-            piece.position = brick.position + SIMD3(Float(i % 3 - 1) * 4 * s, 0, Float(i / 3) * 3 * s - 1.5 * s)
+        for _ in 0..<count {
+            let piece = ModelEntity(mesh: mesh, materials: [material])
+            piece.position = p + SIMD3(Float.random(in: -4...4) * s, 0, Float.random(in: -2...2) * s)
             field.addChild(piece)
-            let v = SIMD3<Float>(Float.random(in: -0.25...0.25), Float.random(in: 0.25...0.5), Float.random(in: -0.25...0.1))
+            let v = SIMD3<Float>(Float.random(in: -1...1), Float.random(in: 0.7...1.4), Float.random(in: -1...0.3)) * speed
             debris.append((piece, v, 0.7))
+        }
+    }
+
+    /// A glowing sphere that grows to `size` view pixels across and fades out.
+    private func flash(at p: SIMD3<Float>, color: UIColor, size: Float, duration: Float) {
+        guard flashes.count < 24 else { return }
+        if flashMesh == nil { flashMesh = .generateSphere(radius: 0.5) }
+        var m = UnlitMaterial(color: color)
+        m.blending = .transparent(opacity: .init(floatLiteral: 0.5))
+        let e = ModelEntity(mesh: flashMesh!, materials: [m])
+        e.position = p
+        e.scale = .zero
+        field.addChild(e)
+        flashes.append((e, 0, duration, size * Self.metresPerPixel))
+    }
+
+    private func updateFlashes(dt: Float) {
+        var i = 0
+        while i < flashes.count {
+            flashes[i].age += dt
+            let k = flashes[i].age / flashes[i].duration
+            if k >= 1 {
+                flashes[i].entity.removeFromParent()
+                flashes.remove(at: i)
+                continue
+            }
+            let e = flashes[i].entity
+            e.scale = SIMD3(repeating: flashes[i].size * (0.3 + 0.7 * sqrt(k)))
+            if var m = e.model?.materials.first as? UnlitMaterial {
+                m.blending = .transparent(opacity: .init(floatLiteral: 0.5 * (1 - k) * (1 - k) * (1 - k)))
+                e.model?.materials = [m]
+            }
+            i += 1
         }
     }
 
