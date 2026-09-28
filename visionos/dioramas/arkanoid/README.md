@@ -33,11 +33,12 @@ video_draw_pixels ──► FrameStore ─────────────�
 
 | Path | What |
 |---|---|
-| `Decoder/ark3d.{h,c}` | Portable C11 decoder. Raw videoram and spriteram bytes (plus the gfx and palette ROM regions) go in; a typed state comes out: brick grid, Vaus x/width, balls, capsules (S/C/L/E/D/B/P), enemies, lasers, high score. |
+| `Decoder/ark3d.{h,c}` | Portable C11 decoder. Raw videoram and spriteram bytes (plus the gfx and palette ROM regions) go in; a typed state comes out: brick grid, the Vaus (x, width, phase, laser), balls, capsules (S/C/L/E/D/B/P), enemies by type, lasers, the enemy hatches, spare lives, score and high score, and whether a round is on screen. |
 | `ARKANOID_STATE.md` | The memory layout, with file:line references into MAME, and a note of which parts are exact and which are heuristics. |
 | `Tests/` | `make -C visionos/dioramas/arkanoid/Tests` runs the unit tests over synthetic buffers on Linux or macOS. `run_e2e.sh` runs a plumbing test through a real MAME build. `ark3d_dump` decodes captures. |
 | `lua/ark3d_capture.lua` | MAME Lua script. It records, every frame, exactly what the app reads, so the decoder can be checked offline against a real ROM. |
-| `App/` | The SwiftUI and RealityKit app: control window, volumetric table-top, immersive "arena". |
+| `lua/ark3d_bot.lua` | Plays unattended (coins, start, steering through the same spinner override as the app), for captures. |
+| `App/` | The SwiftUI and RealityKit app: control window, volumetric table-top, immersive "arena". `PlayfieldScene` builds the diorama from the decoded state; `Models` (Vaus, enemies, ball), `Effects` and `RomArt` (the game's own pixels: the floor's background pattern, capsule sprites) feed it. `ReplayPlayer` plays a capture instead of MAME. |
 | `project.yml` | XcodeGen project. It links the same `libmame.xcframework` as MAMEVision and reuses its `MAMEEngine`, `GameControllerInput`, `ScreenUpdater` and `Shaders.metal`. |
 
 The libmame side is generic and not Arkanoid-specific. It was added to
@@ -95,6 +96,25 @@ target and writes a new spinner count through `myosd_set_analog_input`. It
 measures the pixels-per-count ratio as you play. The stick is handled the same
 way, as a target velocity, so MAME's own dial mapping and the override never
 fight.
+
+## Working on the look
+
+Two environment variables make any moment of the game reproducible in the
+simulator, without MAME or input (set them from a shell with the
+`SIMCTL_CHILD_` prefix):
+
+```sh
+# copy a capture (ark3d_capture.lua output) into the app's Documents first
+SIMCTL_CHILD_DIORAMA_REPLAY=cap.bin SIMCTL_CHILD_DIORAMA_REPLAY_FROM=7835 SIMCTL_CHILD_DIORAMA_REPLAY_HOLD=1 \
+SIMCTL_CHILD_DIORAMA_CLOSEUP=1 xcrun simctl launch booted org.mamedev.diorama.arkanoid
+xcrun simctl io booted screenshot shot.png          # or recordVideo, for motion
+```
+
+- `DIORAMA_REPLAY` plays the capture through the same decoder (`_FROM` picks
+  the first frame, `_HOLD=1` stays on it).
+- `DIORAMA_CLOSEUP=1` opens the arena with the table right in front of the
+  viewer, where the simulator's camera sees all of it. `DIORAMA_POSE="y z
+  pitch scale"` adjusts the placement.
 
 ## Testing without a Mac or a ROM
 
@@ -172,8 +192,9 @@ when `gfxbank` is 1.
 
 ## Next steps
 
-- Reach later rounds for captures: a better bot, or a debug start-round
-  override (find the round number in work RAM).
+- Reach later rounds for captures (gold bricks, DOH): a debug start-round
+  override for the capture scripts, once the round number is found in work
+  RAM.
 - More effects from diffing states: a flash and a sound-synced particle burst
   when silver bricks are hit (their tiles animate), a shockwave on the
   Disruption split, a glow trail on the ball, and the warp gate on the right
