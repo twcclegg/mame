@@ -113,6 +113,7 @@ cp -R bgfx "$APP/bgfx"
 cp -R plugins "$APP/plugins"
 cp -R artwork "$APP/artwork"
 cp -R ctrlr "$APP/ctrlr"
+cp visionos/ctrlr/*.cfg "$APP/ctrlr/"
 cp -R visionos/ini "$APP/ini"
 if [ "$WITH_HASH" = 1 ]; then
 	cp -R hash "$APP/hash"

@@ -1450,6 +1450,8 @@ project "bimg"
 -- BGFX library objects
 --------------------------------------------------
 
+-- the ios OSD (libmame) leaves rendering to the host app, so it has no use for bgfx
+if _OPTIONS["osd"] ~= "ios" then
 project "bgfx"
 	uuid "d3e7e119-35cf-4f4f-aba0-d3bdcd1b879a"
 	kind "StaticLib"
@@ -1653,6 +1655,7 @@ end
 			"-D BGFX_CONFIG_MULTITHREADED=0",
 		}
 	end
+end -- _OPTIONS["osd"] ~= "ios"
 
 
 --------------------------------------------------

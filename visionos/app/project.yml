@@ -1,0 +1,50 @@
+# XcodeGen spec for the MAMEVision host app (https://github.com/yonaskolb/XcodeGen).
+#
+#   brew install xcodegen
+#   visionos/make-libmame.sh all SUBTARGET=tiny     # -> build/libmame/libmame.xcframework
+#   cd visionos/app && xcodegen && open MAMEVision.xcodeproj
+#
+# Set DEVELOPMENT_TEAM (or pick a team in Xcode) for device builds.
+
+name: MAMEVision
+options:
+  bundleIdPrefix: org.mamedev
+  deploymentTarget:
+    visionOS: "2.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: ""
+    SWIFT_VERSION: "5.0"
+targets:
+  MAMEVision:
+    type: application
+    platform: visionOS
+    sources:
+      - path: Sources
+    dependencies:
+      - framework: ../../build/libmame/libmame.xcframework
+        embed: false
+      - sdk: libc++.tbd
+      - sdk: UIKit.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: GameController.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.mamedev.mamevision
+        # libmame contains Objective-C++ (the clipboard helper)
+        OTHER_LDFLAGS: ["-ObjC"]
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: MAME
+        UIApplicationSupportsIndirectInputEvents: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false

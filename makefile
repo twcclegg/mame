@@ -1301,6 +1301,37 @@ visionos-sim: visionos-xcode generate $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-sim
 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-visionos-sim-clang config=$(CONFIG)
 
 #-------------------------------------------------
+# visionOS libmame (OSD=ios)
+#
+# Builds MAME as static libraries for a native host app, using the
+# ios OSD from ToddLa/mame (MAME4iOS) and its libmame.h callback API
+# (src/osd/ios/libmame.h).  visionos/make-libmame.sh combines the
+# output into libmame.xcframework.
+#-------------------------------------------------
+
+PROJECTDIR_IOS := $(BUILDDIR)/projects/ios/$(FULLTARGET)
+VISIONOS_LIBMAME_PARAMS := --osd=ios --targetos=visionos --PLATFORM=arm64 --NOASM=1
+ifdef VISIONOS_MIN_VERSION
+VISIONOS_LIBMAME_PARAMS += --with-visionos='$(VISIONOS_MIN_VERSION)'
+endif
+
+$(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-clang/Makefile: makefile $(SCRIPTS) scripts/src/osd/ios.lua $(GENIE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=visionos-clang --gcc_version=$(CLANG_VERSION) $(VISIONOS_LIBMAME_PARAMS) $(MAKETYPE)
+
+.PHONY: visionos-libmame
+visionos-libmame: visionos-xcode generate $(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-clang/Makefile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-clang config=$(CONFIG) precompile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-clang config=$(CONFIG)
+
+$(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-sim-clang/Makefile: makefile $(SCRIPTS) scripts/src/osd/ios.lua $(GENIE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=visionos-sim-clang --gcc_version=$(CLANG_VERSION) $(VISIONOS_LIBMAME_PARAMS) $(MAKETYPE)
+
+.PHONY: visionos-sim-libmame
+visionos-sim-libmame: visionos-xcode generate $(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-sim-clang/Makefile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-sim-clang config=$(CONFIG) precompile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_IOS)/$(MAKETYPE)-visionos-sim-clang config=$(CONFIG)
+
+#-------------------------------------------------
 # asmjs / Emscripten
 #-------------------------------------------------
 

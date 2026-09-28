@@ -82,6 +82,22 @@ don't matter for B, which doesn't use bgfx. The likely end state is **B2 built o
 ToddLa's `ios` OSD**, possibly upstreamed into this fork as `OSD=ios` with an added
 `xros` target, and with Path A kept as a debugging fallback.
 
+## 1b. Other prior art (added 2026-09-28)
+
+**Emulators on the Vision Pro today:**
+- **RetroArch** (App Store) and **Provenance** list Apple Vision compatibility, but both are **iPad apps running in compatibility mode**, not native visionOS apps. RetroArch's Xcode project targets device families 1,2 (iPhone/iPad) and tvOS only; neither has a visionOS target or spatial features. RetroArch's libretro MAME core is another iOS cross-compile precedent: `Makefile.libretro` builds with `TARGETOS=macosx`, `LIBRETRO_IOS=1` and an `-target arm64-apple-ios` ARCHOPTS, the same trick ToddLa's `make-ios.sh` uses. Provenance ships MAME only for Apple II, and keeps it out of the App Store build.
+- **MAME4iOS** (§1a) has no visionOS target either. Its App Store build is presumably the "ArcadeMania" app (its xcconfig names an `ArcadeMania` launch screen), but I couldn't confirm that or its Vision Pro availability, because App Store pages are blocked from this container. **[check on device]**
+- There's **no native, spatial MAME port** that I could find. That's the gap this project fills.
+
+**Spatial arcade UX reference: Retrocade** (Resolution Games, Apple Arcade, Feb 2026). It has 7 licensed classics (Namco, Atari, Taito, Konami) running original ROMs in emulation, inside 3D cabinets with period artwork and control panels. It offers three viewing modes on Vision Pro, including a fully immersive virtual arcade and cabinets placed in your room via passthrough. It has an on-by-default CRT filter and a faux screen reflection. Coverage praises the immersion, but the headlines hint at caveats (UploadVR: "…With A Catch"; Gizmodo: "could not provide me the (fake) arcade of my dreams"). I couldn't read either review because they're blocked from this container, so what the catch is remains unknown. It's the bar for our "virtual cabinet" display goal. The emulator it uses isn't public.
+
+**Stereoscopic 3D precedents** (for the "3D upscaling" goal): Dolphin's stereoscopy mode and PPSSPP VR re-render *hardware-rendered* 3D geometry per eye. That's possible because those emulators draw through a GPU API. MAME's 3D systems rasterize in software per driver, so the equivalent needs per-driver work (§7) or a renderer rewrite for the chosen driver. Nothing generic to borrow.
+
+**visionOS platform facts that affect the design:**
+- **The controller Home button (PS / Xbox / Guide) is reserved by the system** and never reaches the app. MAME's SDL3 gamepad support maps the UI menu to Guide, so we need another binding. **Done:** `visionos/ctrlr/visionos.cfg` adds Select+Start, and the libmame host uses Select+Start as well. Volumetric windows reportedly expose even fewer controller inputs.
+- **Per-frame Metal texture into RealityKit:** use `LowLevelTexture`. Apple recommends it in WWDC24 "Bring your iOS or iPadOS game to visionOS", and you can blit an existing `MTLTexture` into it each frame. This is the path for phase 2a (the game screen on a RealityKit quad or cabinet) without going full Compositor Services.
+- **JIT:** StikDebug-style debugger JIT enabling targets iOS (17.4 and later; iOS 26 support is shaky) with sideloaded `get-task-allow` builds. Nothing indicates it works on visionOS. Treat no-JIT as permanent.
+
 ---
 
 ## 2. Build system: what exists and what to add
@@ -252,6 +268,13 @@ on visionOS) as a final pass in the RealityKit presenter.
 5. ~~**Hardware:**~~ answered: **M2**. Budget accordingly. Interpreted classic systems will be fine. With the C DRC backend, heavy recompiler-era systems (Model 3, Naomi, Saturn, N64, Seattle/Vegas) will likely fall short of full speed, and the frame budget also has to cover rendering at visionOS's 90 Hz compositor rate.
 
 ## References
+- RetroArch App Store listing: https://apps.apple.com/us/app/retroarch/id6499539433
+- Provenance: https://github.com/Provenance-Emu/Provenance
+- libretro MAME core: https://github.com/libretro/mame
+- Retrocade coverage: https://appleinsider.com/articles/26/01/14/apple-vision-pro-owners-will-get-a-great-assortment-of-classic-arcade-games-in-vr-soon , https://www.uploadvr.com/retrocade-for-apple-vision-pro-nostalgic-virtual-arcade-review/
+- WWDC24 "Bring your iOS or iPadOS game to visionOS" (LowLevelTexture): https://developer.apple.com/videos/play/wwdc2024/10093/
+- Controller button reservation on visionOS: https://developer.apple.com/forums/tags/game-controller
+- StikDebug: https://github.com/StikDebug/StikDebug
 - MAME4iOS (app): https://github.com/yoshisuga/MAME4iOS
 - ToddLa/mame (MAME fork with `OSD=ios`, `make-ios.sh`, `src/osd/ios/libmame.h`): https://github.com/ToddLa/mame
 - SDL3 visionOS platform macro: https://wiki.libsdl.org/SDL3/SDL_PLATFORM_VISIONOS

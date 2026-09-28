@@ -86,7 +86,34 @@ visionos/bundle.sh device --sdl ... --bundle-id <your.bundle.id> \
 - Writable data lives in the app's **Documents** folder, which the Files app and Finder file sharing can see: `roms/`, `cfg/`, `nvram/`, `ini/` and so on. MAME's working directory is Documents.
 - Read-only support files are loaded from the app bundle: `bgfx/`, `plugins/`, `hash/`, `artwork/`, `ctrlr/`, `language/` and the default `ini/mame.ini` (from `visionos/ini/`). A `mame.ini` in Documents overrides the bundled one.
 - The default video is `accel` (SDL_Renderer on Metal). To try bgfx, add `-video bgfx` and optionally `-bgfx_screen_chains crt-geom` or `xbr`.
-- Game controllers work through SDL's gamepad support. MAME already maps its UI to the gamepad: A selects, B goes back, and Guide opens the menu. Guide may be reserved by the system, which needs checking.
+- Game controllers work through SDL's gamepad support. MAME already maps its UI to the gamepad: A selects and B goes back. visionOS reserves the Guide/Home/PS button that MAME uses for the menu, so `visionos/ctrlr/visionos.cfg` (enabled by the bundled `mame.ini`) also opens the menu with **Select + Start**.
+
+## Path B: libmame (`OSD=ios`) and the MAMEVision host app
+
+A second, independent route: MAME built as a static library with the `ios` OSD
+from [ToddLa/mame](https://github.com/ToddLa/mame) (the MAME side of MAME4iOS),
+driven by a native SwiftUI app through the C callback API in
+`src/osd/ios/libmame.h`. This is the planned base for spatial display (see
+RESEARCH.md §1a). Nothing here has been compiled on a Mac yet.
+
+```sh
+# 1. libmame for device + simulator -> build/libmame/libmame.xcframework
+visionos/make-libmame.sh all SUBTARGET=tiny        # or: sim SOURCES=src/mame/pacman/pacman.cpp
+
+# 2. host app (needs XcodeGen: brew install xcodegen)
+cd visionos/app && xcodegen && open MAMEVision.xcodeproj
+#    run on the visionOS simulator; launch arguments go to MAME, e.g. "pacman"
+```
+
+- `make visionos-libmame` / `make visionos-sim-libmame` build the libraries. `make-libmame.sh` uses its own `BUILDDIR` (`build/libmame`), merges all the archives with `libtool` and packages them with `libmame.h` and a module map, so Swift can `import libmame`.
+- The `ios` OSD was imported from ToddLa/mame at `fc040128` (MAME 0.288) and adapted to 0.289: `screen_type()` became `device_video_output_interface::is_vector()` / `screen_device::is_lcd()`, and `input.cpp` now includes `input.h`. bgfx isn't built for it.
+- **New optional callback** `video_draw_pixels` in `libmame.h` (appended to the struct, so existing hosts are unaffected): MAME rasterizes the frame with its own software renderer (`rendersw.hxx`, the `-video soft` code) and hands the host a BGRA buffer. That lets the host get a picture up without implementing a primitive renderer. The primitive-list `video_draw` path is unchanged and still the one to use for spatial or layered rendering later.
+- Also fixed: an out-of-bounds write in `video.cpp` when the primitive list is empty; `libmame.h` wasn't self-contained (missing `<stddef.h>`); clipboard support is enabled on visionOS in `paste.mm`.
+- Host app (`visionos/app/Sources`):
+  - `MAMEEngine` runs `myosd_main` on a 16 MB-stack thread, with Documents as the working directory (`roms/` and so on) and launch arguments passed through.
+  - `FrameView` is an MTKView that shows the frame aspect-fit with nearest sampling, through a 4-texture ring.
+  - `GameControllerInput` maps GCExtendedGamepad to `myosd_input_state`. Select+Start opens the menu, Select+L1 exits (ESC) and Select+R1 pauses.
+  - Sound uses libmame's built-in AudioQueue output.
 
 ## What changed for the port
 
