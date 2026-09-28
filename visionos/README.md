@@ -180,6 +180,18 @@ GUI needed:
   crt-geom` renders full gameplay with the crt-geom shadow-mask/glow chain
   visibly applied. Clean exit via Lua `manager.machine:exit()`, 100% speed,
   no crash.
+- **visionOS 27.0 runtime instability was a transient install glitch, not a
+  MAME bug.** Root cause: the xrOS 27.0 runtime was still `state=Copying`
+  when first used, got registered twice under two disk-image IDs from the
+  same asset, and `simdiskimaged` then tried to unmount/remount it while a
+  device was using it — `cryptexd` failed with `unmount [16: Resource busy]`,
+  which is exactly what produced the `liblaunch_sim.dylib could not be
+  opened` / `Malformed bundle` errors. A fresh 27.0 device (after the
+  duplicate registration resolved itself) installed and launched
+  `MAME-sim.app` 3 times and survived 2 full shutdown/boot cycles, UI
+  rendering correctly each time. The original broken device from that
+  session (`8CBA0F71`) predates the fix and may still be bad; delete and
+  recreate it rather than debugging it further.
 
 Still open:
 1. **A bgfx/Metal shutdown crash on the *early-fatal* path only** (e.g. a
@@ -213,10 +225,3 @@ Still open:
    move a real pointer times out. Needs a person physically trying it.
 4. **Device (hardware) launch.** Only the Simulator has been tried. Needs a
    dev-team identity + provisioning profile for `bundle.sh device`.
-5. **visionOS 27.0 runtime instability on this machine.** A freshly-booted
-   `Apple Vision Pro` device on the `visionOS 27.0` runtime failed after one
-   launch attempt (`liblaunch_sim.dylib could not be opened`, `Malformed
-   bundle does not contain an identifier` on the runtime's own `.simruntime`
-   bundle) and needed a fallback to a `visionOS 26.5` device to make any
-   further progress. Unclear whether that's a bad runtime install or a
-   genuine bug; worth another look with a clean runtime install.
