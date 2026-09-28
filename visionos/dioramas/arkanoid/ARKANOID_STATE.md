@@ -196,7 +196,8 @@ only mismatches are the frame where the display lags RAM by one update.
 | Share, region and save-item names, capture format, decoding through a real MAME build | `Tests/run_e2e.sh` (placeholder ROMs); and real captures, below |
 | Codes, layout and scores against the real game | **done for rounds 1–2** (§10): about 36,000 frames of `arkanoid` (World) played by `lua/ark3d_bot.lua` on macOS MAME 0.289 |
 | Rounds 3–32 | swept with a test script that clears each round (bricks-remaining counter `ed83` set to 0) and holds the lives bytes (`c006`, `e8a8`, `ed71`, `ed76`); 4 background patterns, gold bricks, no other new brick codes |
-| DOH (round 33), the Disruption (3-ball) state, the B warp | not seen yet. Unknown codes fall back to the heuristics |
+| Disruption (3 balls), the B warp gate | seen with `BOT_CATCH="B D"` (the bot chases those capsules) |
+| DOH (round 33) | not seen yet (deferred, twcclegg/mame-dioramas#1) |
 
 ## 10. Verified codes [game, verified]
 
@@ -211,6 +212,7 @@ override them.
 | `000-0ff` | font: scores, "HIGH SCORE", title and high-score screens |
 | `11e-129` | walls: the side walls (view columns 0 and 27) and the top wall (row 2). A round is on screen (`in_play`) only while both side walls are there; the game blanks them column by column when it wipes the playfield |
 | `124-127` in row 2, columns 5–8 and 19–22 | the two enemy hatches, closed. Opening runs through `14a`, `14e`, `152`, `156`, `15a` (4 tiles each, 4 frames a step) and closes the same way back (`gate_open`) |
+| `12a-149` in column 27, rows 27–31 | the warp gate (B capsule, `warp_open`): opening through `12a-12e`, `12f-133`, `134-13b`, then a frame (`13d` top, `13c` bottom) round an interior cycling `13e-149` |
 | `710-719` | the attract demo's "GAME OVER" banner |
 | `185`,`184` in row 31 from column 1 | a spare-life icon each (`spare_lives`): 2 at the start of a game, so 3 lives. The lives count isn't in work RAM (c000-c7ff): no byte there drops by one at each lost life |
 | `15e-16d` | coloured bricks, pairs (left even, right odd): white, orange, cyan, green, red, blue, magenta, yellow |

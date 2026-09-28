@@ -144,6 +144,7 @@ final class PlayfieldScene {
             field.addChild(seg)
         }
         buildGates(gates, wallY: wallY, wallMat: wallMat)
+        buildWarp()
 
         // pinch target over the whole field
         touchSurface.components.set(InputTargetComponent())
@@ -201,9 +202,40 @@ final class PlayfieldScene {
             gateShown.append(0)
         }
     }
+    /// The warp gate (B capsule) in the right wall's bottom section.
+    private let warp = Entity()
+    private let warpGlow = ModelEntity()
+    private var warpShown: Float = 0
     private var gateDoors: [[Entity]] = []
     private var gateGlows: [ModelEntity] = []
     private var gateShown: [Float] = []
+
+    /// A doorway of light in the right wall, over its bottom five tile rows.
+    private func buildWarp() {
+        let s = Self.metresPerPixel, h = Self.wallHeight
+        let x = Float(layout.field_right) + 4, y: Float = 236, length: Float = 36
+        var frameMat = PhysicallyBasedMaterial()
+        frameMat.baseColor = .init(tint: UIColor(white: 0.25, alpha: 1))
+        frameMat.metallic = .init(floatLiteral: 1)
+        frameMat.roughness = .init(floatLiteral: 0.3)
+        frameMat.emissiveColor = .init(color: UIColor(red: 0.2, green: 0.9, blue: 1, alpha: 1))
+        frameMat.emissiveIntensity = 1
+        for dy in [-length / 2 - 1.5, length / 2 + 1.5] {
+            let post = ModelEntity(mesh: .generateBox(width: 10 * s, height: h * 1.15, depth: 3 * s, cornerRadius: 0.001),
+                                   materials: [frameMat])
+            post.position = local(x, y + dy, h * 0.575)
+            warp.addChild(post)
+        }
+        var glowMat = UnlitMaterial(color: UIColor(red: 0.55, green: 0.95, blue: 1, alpha: 1))
+        glowMat.blending = .transparent(opacity: .init(floatLiteral: 0.85))
+        warpGlow.model = ModelComponent(mesh: .generateBox(width: 9.5 * s, height: h * 1.05, depth: length * s), materials: [glowMat])
+        warpGlow.position = local(x, y, h * 0.525)
+        warpGlow.components.set(PointLightComponent(color: UIColor(red: 0.4, green: 0.9, blue: 1, alpha: 1),
+                                                    intensity: 600, attenuationRadius: 0.25))
+        warp.addChild(warpGlow)
+        warp.isEnabled = false
+        field.addChild(warp)
+    }
 
     private func buildPools() {
         let s = Self.metresPerPixel
@@ -494,6 +526,18 @@ final class PlayfieldScene {
         }
 
         banner.update(round: Int(s.banner_round), ready: s.banner_ready != 0, dt: dt)
+
+        // warp gate: opens with the game's steps, then shimmers
+        warpShown += (s.warp_open - warpShown) * min(1, dt * 14)
+        warp.isEnabled = warpShown > 0.02
+        if warp.isEnabled {
+            let flicker = 0.85 + 0.15 * sin(spin * 23) * sin(spin * 7)
+            warpGlow.scale = [1, 1, max(0.02, warpShown)]
+            if var m = warpGlow.model?.materials.first as? UnlitMaterial {
+                m.blending = .transparent(opacity: .init(floatLiteral: 0.85 * flicker * warpShown))
+                warpGlow.model?.materials = [m]
+            }
+        }
 
         let spare = Int(s.spare_lives)
         if spare >= 0 {

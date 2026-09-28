@@ -181,6 +181,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     fill(cal->tile_kind, 0x000, 0x0ff, ARK3D_KIND_TEXT);            // the font, scores
     fill(cal->tile_kind, 0x710, 0x719, ARK3D_KIND_TEXT);            // the attract demo's "GAME OVER" banner
     fill(cal->tile_kind, 0x11e, 0x129, ARK3D_KIND_WALL);            // side walls and the top wall
+    fill(cal->tile_kind, 0x12a, 0x149, ARK3D_KIND_WALL);            // the warp gate (see warp_open)
     fill(cal->tile_kind, 0x14a, 0x15d, ARK3D_KIND_WALL);            // enemy hatches opening (see gate_open)
     fill(cal->tile_kind, 0x184, 0x185, ARK3D_KIND_TEXT);            // spare-life icons (see spare_lives)
     fill(cal->tile_kind, 0x15e, 0x16d, ARK3D_KIND_BRICK);
@@ -531,6 +532,20 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             if (st->tile_code[ARK3D_VIEW_ROWS - 1][c] != 0x185 || st->tile_code[ARK3D_VIEW_ROWS - 1][c + 1] != 0x184)
                 break;
         st->spare_lives = n;
+    }
+
+    // ---- warp gate.  [game] catching a B capsule opens it in the right wall,
+    // view rows 27-31: the wall's tiles there step through 12a-12e, 12f-133
+    // and 134-13b, then stay open (a frame, 13d on top and 13c at the bottom,
+    // round an interior cycling 13e-149).  Judged by the top tile.
+    {
+        int const code = st->tile_code[27][ARK3D_VIEW_COLS - 1];
+        float open = 0;
+        if (code >= 0x12a && code <= 0x12e) open = 0.25f;
+        else if (code >= 0x12f && code <= 0x133) open = 0.5f;
+        else if (code >= 0x134 && code <= 0x13b) open = 0.75f;
+        else if (code >= 0x13c && code <= 0x149) open = 1;
+        st->warp_open = open;
     }
 
     // ---- bricks

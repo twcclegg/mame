@@ -18,6 +18,9 @@
 --   ARK3D_CAPTURE     path of ark3d_capture.lua to run alongside (optional)
 --   ARK3D_SNAPS       space-separated frame numbers to take snapshots at
 --   ARK3D_SNAP_EVERY  also take a snapshot every N frames
+--   BOT_CATCH         capsule letters to go after, e.g. "B D" (default none):
+--                     while the ball is on its way up and still far, the Vaus
+--                     moves under a falling capsule with one of these letters
 --
 -- Sprite codes are the verified ones from Decoder/ark3d.c
 -- (ark3d_default_calibration): the ball is 1b8, the Vaus's sprites sit at
@@ -47,6 +50,11 @@ for s in (os.getenv("ARK3D_SNAPS") or ""):gmatch("%d+") do snaps[tonumber(s)] = 
 local snap_every = tonumber(os.getenv("ARK3D_SNAP_EVERY") or "0") or 0
 
 local BALL = 0x1b8
+local CATCH = {}
+for letter in (os.getenv("BOT_CATCH") or ""):gmatch("%a") do
+	local i = ("SCLEDBP"):find(letter:upper(), 1, true)
+	if i then CATCH[i - 1] = true end        -- capsule sprites: 0x180 + 8 * letter index
+end
 local VAUS_Y = 232
 local SHADOW_COLOUR = 8
 local FIELD_LEFT, FIELD_RIGHT = 8, 216
@@ -54,11 +62,11 @@ local FIELD_LEFT, FIELD_RIGHT = 8, 216
 local counter, gain = 0, 1.0
 local last_x, win_steps, win_move, win_frames = nil, 0, 0, 0
 local n, idle, offset = 0, 0, 0
-local ball_y_last
+local ball_y_last, ball_y_prev
 
 -- Vaus extent (sprite cells) and ball centre, ignoring shadows
 local function sprites()
-	local vx0, vx1, ball_x, ball_y
+	local vx0, vx1, ball_x, ball_y, cap_x, cap_y
 	for i = 0, 15 do
 		local y, x, a, c = sram:read_u8(4 * i), sram:read_u8(4 * i + 1), sram:read_u8(4 * i + 2), sram:read_u8(4 * i + 3)
 		if (x ~= 0 or y ~= 0) and (a >> 3) ~= SHADOW_COLOUR then
@@ -66,13 +74,15 @@ local function sprites()
 			local vx = x - 16
 			if code == BALL then
 				ball_x, ball_y = vx + 8, y
+			elseif code >= 0x180 and code <= 0x1b7 and CATCH[(code - 0x180) // 8] and (not cap_y or y > cap_y) then
+				cap_x, cap_y = vx + 8, y
 			elseif y == VAUS_Y and code >= 0x0f2 and code <= 0x0ff then
 				vx0 = math.min(vx0 or 999, vx)
 				vx1 = math.max(vx1 or -999, vx + 16)
 			end
 		end
 	end
-	return vx0, vx1, ball_x, ball_y
+	return vx0, vx1, ball_x, ball_y, cap_x, cap_y
 end
 
 bot_subscription = emu.add_machine_frame_notifier(function()
@@ -80,7 +90,7 @@ bot_subscription = emu.add_machine_frame_notifier(function()
 	local frame = screen:frame_number()
 	if snaps[frame] or (snap_every > 0 and frame % snap_every == 0) then machine.video:snapshot() end
 
-	local vx0, vx1, ball_x, ball_y = sprites()
+	local vx0, vx1, ball_x, ball_y, cap_x, cap_y = sprites()
 
 	-- no Vaus for a while: attract mode or game over, so insert a coin and start
 	idle = vx0 and 0 or idle + 1
@@ -106,6 +116,10 @@ bot_subscription = emu.add_machine_frame_notifier(function()
 	end
 	ball_y_last = ball_y
 	local goal = ball_x and (ball_x - offset) or 112
+	-- go for a wanted capsule while the ball is rising and still far away
+	local rising = ball_y and ball_y_prev and ball_y < ball_y_prev
+	if cap_x and cap_y > 150 and (not ball_y or (rising and ball_y < 140)) then goal = cap_x end
+	ball_y_prev = ball_y
 	goal = math.max(FIELD_LEFT + half, math.min(FIELD_RIGHT - half, goal))
 
 	-- learn px/count, magnitude only (see PaddleController.swift)
