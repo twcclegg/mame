@@ -75,7 +75,10 @@ extern "C" int myosd_main(int argc, char** argv, myosd_callbacks* callbacks, siz
 {
     myosd_callbacks host_callbacks;
     memset(&host_callbacks, 0, sizeof(host_callbacks));
-    memcpy(&host_callbacks, callbacks, MIN(sizeof(host_callbacks), sizeof(myosd_callbacks)));
+    // a host built against an older libmame.h passes a shorter struct; the
+    // callbacks it doesn't know about stay NULL
+    if (callbacks != NULL)
+        memcpy(&host_callbacks, callbacks, MIN(sizeof(host_callbacks), callbacks_size));
     
     if (argc == 0 || argv == NULL) {
         static const char* args[] = {"myosd"};
@@ -665,7 +668,8 @@ void ios_osd_interface::init(running_machine &machine)
     // before they are consumed by the rest of the core.
     //
     m_machine = &machine;
-    
+    g_ios_machine = &machine;
+
     // ensure we get called on the way out
     machine.add_notifier(MACHINE_NOTIFY_EXIT, machine_notify_delegate(&ios_osd_interface::machine_exit, this));
     
@@ -747,6 +751,8 @@ void ios_osd_interface::machine_exit()
     video_exit();
     input_exit();
     sound_exit();
+
+    g_ios_machine = nullptr;
 }
 
 //============================================================

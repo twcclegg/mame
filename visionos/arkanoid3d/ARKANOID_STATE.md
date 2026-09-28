@@ -1,0 +1,198 @@
+# Arkanoid's game state, as seen from MAME's video hardware
+
+How `Decoder/ark3d.c` gets a playfield out of the arcade Arkanoid's memory.
+The references are to this tree. Two kinds of claim appear below, and they are
+kept apart:
+
+- **[driver]**: read directly off MAME's source for `taito/arkanoid.cpp`.
+  This is how the hardware works, and it's exact.
+- **[game]**: what the *game program* puts in that hardware: which tile is a
+  gold brick, which sprite is the Vaus. None of that is in MAME's source. It
+  lives in the ROMs. We don't have a ROM, so every **[game]** item is a
+  heuristic or an assumption that still has to be checked with one.
+  Tests/`run_e2e.sh` and `lua/ark3d_capture.lua` are there for that.
+
+## 1. Memory map [driver]
+
+`arkanoid_state::arkanoid_map`, `src/mame/taito/arkanoid.cpp:833-848`:
+
+| Z80 address | What | How the app reads it |
+|---|---|---|
+| `c000-c7ff` (mirrored at `c800`) | work RAM (`.ram().mirror(0x0800)`, :836) | `myosd_read_memory(":maincpu", MYOSD_AS_PROGRAM, 0xc000, …, 0x800)` |
+| `d008` write | bank / flip / MCU-reset latch (:839, `arkanoid_d008_w`) | write-only, so via save items, see §4 |
+| `e000-e7ff` | background tilemap RAM, share `"videoram"` (:844) | `myosd_get_memory_share(":videoram")` |
+| `e800-e83f` | sprite RAM, share `"spriteram"` (:845) | `myosd_get_memory_share(":spriteram")` |
+| `e840-efff` | more RAM (:846) | not used |
+
+The shares are declared in `arkanoid.h:31-32`. The ROM regions are `"gfx1"`
+(`0x18000` bytes, 3 bitplanes) and `"proms"` (`0x600`: R, G and B, 512 each),
+at `arkanoid.cpp:1562-1570`.
+
+## 2. Screen geometry [driver]
+
+- `m_screen->set_raw(12_MHz_XTAL/2, 384, 0, 256, 264, 16, 240)` (`arkanoid.cpp:1371`):
+  the raw frame is 256×224 visible, with x 0–255 and y 16–239.
+- Every Arkanoid set is `ROT90` (`arkanoid.cpp:2329` ff.), and
+  `ROT90 = ORIENTATION_SWAP_XY | ORIENTATION_FLIP_X` (`src/emu/emucore.h:176`).
+  So raw pixel (x, y) is shown at **view (239 − y, x)**. The player sees
+  224×256: raw x runs down the screen, and raw y runs right to left.
+  (`ark3d_raw_to_view`.)
+
+Everything the decoder outputs is in these **view pixels** (224×256, y down).
+
+## 3. Background tilemap: bricks, walls, text [driver]
+
+`video_start` (`arkanoid_v.cpp:170-173`) sets up a 32×32 tilemap of 8×8 tiles
+with `TILEMAP_SCAN_ROWS`, so tile *i* is at raw (8·(i mod 32), 8·(i div 32)).
+`get_bg_tile_info` (`arkanoid_v.cpp:161-168`) uses 2 bytes per tile:
+
+```
+byte 2i   : cccc c ccc    bits 7-3 colour (0-31), bits 2-0 code bits 10-8
+byte 2i+1 : code bits 7-0
+code   = byte1 + ((byte0 & 7) << 8) + 2048 * gfxbank        (0-4095)
+colour = (byte0 >> 3) + 32 * palettebank                    (0-63)
+```
+
+In view order, view tile column *c* (0–27) and row *r* (0–31) are tilemap
+index `(29 − c)·32 + r`. Tilemap rows 2–29 are the visible ones.
+
+Inside a tile, view pixel (u, v) is char pixel (px = v, py = 7 − u).
+
+Writes go through `arkanoid_videoram_w` (`arkanoid_v.cpp:15-19`), which only
+marks the tile dirty. The RAM holds the whole picture, so reading the share is
+enough.
+
+**[game]** Bricks are 16×8 in the view (2 tiles side by side) and fill a 13-wide
+grid between 8 px walls (13·16 = 208 = 224 − 2·8). That is the arcade game's
+familiar geometry, but the exact offsets are assumptions: `ark3d_default_layout`
+uses `grid_left = 8`, `grid_top = 24`, and two text rows plus a wall row above
+the field. Which **tile codes** are bricks (and which colours, silver or gold),
+walls, drop shadows or text is not in MAME's source. Without a calibration
+table the decoder:
+1. learns the **background** each frame from a band of the playfield that never
+   holds bricks (`reference_top`–`reference_bottom`, y 208–223 by default). The
+   background is a repeating pattern, so its tiles recur there;
+2. calls a cell a **brick** when *every* tile of the cell is not background. A
+   drop shadow darkens only part of a neighbouring cell. It also rejects cells
+   whose mean colour is dark in every channel (max channel < 60), treating
+   those as shadow;
+3. takes the brick's **colour** from its left tile's most common pen, through
+   the real palette (§5). This makes colours right with no code table.
+
+It can't tell silver or gold bricks from white or yellow ones without a table.
+It will also count text drawn over the field ("ROUND 1", "READY") as bricks
+while that text is up. A calibration file fixes both (see README).
+
+## 4. Banks and flip: the `d008` latch [driver]
+
+`arkanoid_d008_w` (`arkanoid_v.cpp:21-60`):
+
+| bit | meaning | driver member (save item) |
+|---|---|---|
+| 0, 1 | flip X, flip Y (cocktail, player 2) | `m_flip_screen_x/y` (`src/emu/driver.cpp:207-208`) |
+| 2 | which spinner the MCU reads, P1 or P2 | `m_paddle_select` (and `input_mux_r`, `arkanoid_m.cpp:33-36`) |
+| 3 | coin lockout | — |
+| 5 | graphics bank (adds 2048 to tile codes, 1024 to sprite codes) | `m_gfxbank` |
+| 6 | palette bank (adds 32 to colours) | `m_palettebank` |
+| 7 | MCU reset | — |
+
+The register is write-only, so no share holds it. The driver latches it into
+members, which `machine_start` registers for save states
+(`arkanoid.cpp:1334-1343`). `myosd_get_state_item(":", "m_gfxbank")` and the
+Lua `manager.machine.devices[":"].items["0/m_gfxbank"]` both find them. The
+e2e test confirmed all four names against a real build.
+
+Flip is applied by the hardware at draw time: tilemap flip, and
+`sx = 248 − sx` in `draw_sprites`. So RAM stays in the game's logical
+orientation, and the decoder ignores flip for positions. **[game]** This
+assumes the program doesn't also mirror its own writes in cocktail mode.
+
+## 5. Graphics and palette [driver]
+
+- `charlayout` (`arkanoid.cpp:1310-1319`): 4096 chars, 8×8, 3 bpp. The planes sit at
+  bit offsets {2·4096·64, 4096·64, 0}, i.e. bytes `0x10000`, `0x8000`, `0`
+  of gfx1. The first is the most significant, with 8 bytes per char and the
+  MSB as the leftmost pixel. (`ark3d_char_pen`.)
+- The palette is `PALETTE(..., RGB_444_PROMS, "proms", 512)` (`arkanoid.cpp:1377`), decoded by
+  `palette_init_rgb_444_proms` (`src/emu/emupal.cpp:720`): entry *i* has R =
+  `proms[i]`, G = `proms[i+512]`, B = `proms[i+1024]`, each nibble weighted
+  `0x0e, 0x1f, 0x43, 0x8f`. Pen = colour·8 + pixel. For tiles pixel 0 is
+  opaque; for sprites it's transparent (`transpen(..., 0)`).
+
+`ark3d_analyze_graphics` decodes both once per game, from the user's own ROM
+through `myosd_get_memory_region`. That's what lets the heuristics look at
+shapes and real colours.
+
+## 6. Sprites [driver]
+
+`draw_sprites` (`arkanoid_v.cpp:175-203`) has 16 entries of 4 bytes
+(`m_spriteram.bytes()` = 0x40):
+
+```
+byte 0 : sx  (raw x)
+byte 1 : sy = 248 − byte1  (raw y of the lower half)
+byte 2 : bits 7-3 colour, bits 1-0 code bits 9-8
+byte 3 : code bits 7-0
+code   = byte3 + ((byte2 & 3) << 8) + 1024 * gfxbank
+colour = (byte2 >> 3) + 32 * palettebank
+```
+
+Each sprite is two chars, `2·code` at raw (sx, sy−8) and `2·code+1` at (sx, sy),
+so 8×16 raw. **In the view that's 16 wide × 8 tall, with top-left at
+(byte1 − 16, byte0)** (`ark3d_sprite_view_rect`). Inside it, view pixel
+(u, v) is char `2·code + (u < 8 ? 1 : 0)`, px = v, py = (15 − u) & 7.
+
+**[game]** Which sprite codes are what isn't in MAME. Without a table the
+decoder uses geometry and the ROM graphics:
+
+| Object | Heuristic |
+|---|---|
+| **Vaus** | the lowest row (y ≥ `vaus_min_y` = 200) holding ≥ 2 sprites at the same y. The Vaus is 32 px+ wide, so it's always several 16 px sprites, and its y is fixed during play. Position and width come from the union of their opaque pixels, so enlarged and shrinking forms come out right. "Laser" form needs a table. |
+| **Ball** | a sprite whose opaque pixels form a small compact blob (≤ 24 px, bbox 2–7 × 2–7). Its centre is the blob's centre, not the cell's. |
+| **Laser** | small, sparse (≤ 32 px, under half its bbox), at least 5 px tall. |
+| **Enemy** | a large sprite (≥ 40 px) with another large one exactly 8 px above or below at the same x. Enemies are assumed to be 16×16 pairs, and the two halves are merged. |
+| **Capsule** | a large sprite with no such partner, i.e. a single 16×8. Its type comes from its dominant colour, nearest of S orange, C green, L red, E blue, D cyan, B pink and P grey. |
+| other | everything else (explosions, the Vaus's death animation, …) |
+
+Parked or unused sprites are left out if their graphic is blank.
+
+## 7. Inputs [driver]
+
+- `PORT_START("P1") PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_SENSITIVITY(30) PORT_KEYDELTA(15)`
+  (`arkanoid.cpp:1063-1064`); P2 is the same with `PORT_COCKTAIL` (:1066-1067).
+  It's an 8-bit wrapping spinner count, read by the 68705 MCU through
+  `input_mux_r` (`arkanoid_m.cpp:33-36`). The MCU turns movement into the Vaus
+  position.
+- Fire is `BUTTONS` bit 0 (`IPT_BUTTON1`, :1029). `SYSTEM` holds START1/2 and
+  COIN1/2 (:1008-1015).
+
+MAME's defaults, with the `ios` OSD's additions (`src/osd/ios/input.cpp:504-509`),
+already map the controller for this game: the stick X axis and hat left/right
+drive the dial, A is button 1, Select is Coin 1 (`src/emu/inpttype.ipp:598`)
+and Start is Start 1 (:586).
+
+**Absolute paddle.** A spinner is relative, so the app owns the count.
+`myosd_set_analog_input(":P1"/":P2", 0xff, n)` overrides the field's raw value
+(`analog_field::set_value`, `src/emu/ioport.cpp:3821`). Each frame
+`PaddleController` compares the Vaus x from sprite RAM with the target and
+steps n. **[game]** How many pixels one count moves the Vaus is measured while
+playing, not assumed, and it starts at +1 px per count.
+
+## 8. Score [game]
+
+`plugins/hiscore/hiscore.dat` (entries at about line 15160) saves 3 bytes at
+`c4df`, plus a 35-byte table at `ef79`, for `arkanoid` and its clones. The
+decoder reads `c4df-c4e1` as 6 BCD digits, most significant first, and shows
+that as the high score (-1 if it isn't valid BCD). Both the meaning and the
+byte order are unverified. The current player's score hasn't been located.
+The ways to find it are to look near `c4df` in a capture, or to read the digit
+tiles in view rows 0–1 once the font's codes are known.
+
+## 9. Validation status
+
+| What | Status |
+|---|---|
+| Formulas in §2–§6 against MAME's source | done (above) |
+| Decoder on synthetic data | `make -C Tests`: 88 checks pass, gcc and clang, `-Werror -Wconversion` |
+| Share, region and save-item names, capture format, decoding through a real MAME build (Linux, `SOURCES=src/mame/taito/arkanoid.cpp`) | `Tests/run_e2e.sh` passes, using placeholder ROM files and an injected synthetic scene |
+| Heuristics and layout against the real game | **not done, needs a ROM**: capture a session and run `ark3d_dump --codes` / `-f N` (see README) |

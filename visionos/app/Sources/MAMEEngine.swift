@@ -73,6 +73,18 @@ final class MAMEEngine: @unchecked Sendable {
     /// Sega Model 1).  Must be set before `start`; costs a copy per frame.
     var wantsGeometry = false
 
+    // Optional hooks for hosts that look at the running machine (the
+    // Arkanoid 3D app).  Set them before start(); they're called on the MAME
+    // thread.  Left nil (MAMEVision), the matching libmame callbacks aren't
+    // installed at all.
+    /// libmame game_init: a game (not MAME's own menu) is starting.
+    var onGameInit: ((myosd_game_info) -> Void)?
+    /// libmame game_exit.
+    var onGameExit: (() -> Void)?
+    /// libmame machine_frame: once per emulated frame, with the CPUs stopped;
+    /// the place to call myosd_get_memory_share and friends.
+    var onMachineFrame: ((myosd_frame_info) -> Void)?
+
     /// Size MAME lays its render target out for.  The software renderer draws
     /// at this size; the GPU scales the result to the window.
     var renderSize = (width: 1280, height: 960)
@@ -149,6 +161,21 @@ final class MAMEEngine: @unchecked Sendable {
             callbacks.geometry_frame = { frame in
                 guard let frame else { return }
                 MAMEEngine.shared.geometry.store(frame.pointee)
+            }
+        }
+        if MAMEEngine.shared.onGameInit != nil {
+            callbacks.game_init = { info in
+                guard let info else { return }
+                MAMEEngine.shared.onGameInit?(info.pointee)
+            }
+        }
+        if MAMEEngine.shared.onGameExit != nil {
+            callbacks.game_exit = { MAMEEngine.shared.onGameExit?() }
+        }
+        if MAMEEngine.shared.onMachineFrame != nil {
+            callbacks.machine_frame = { info in
+                guard let info else { return }
+                MAMEEngine.shared.onMachineFrame?(info.pointee)
             }
         }
         // sound callbacks left nil: libmame falls back to its own AudioQueue output

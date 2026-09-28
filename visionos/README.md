@@ -130,6 +130,7 @@ cd visionos/app && xcodegen && open MAMEVision.xcodeproj
 - **For per-game renderers** (see RESEARCH.md §7a):
   - `MAMEEngine.wantsGeometry` turns on libmame's `geometry_frame` callback. `GeometryStore` then holds each frame's camera-space 3D polygons, for drivers that export them (Sega Model 1 so far, via `src/emu/geomexport.h`).
   - `setSuppressNative3D(true)` leaves only the game's 2D layers in the video frame, so host-rendered 3D can be composited under the HUD.
+- **Machine state access** (appended to `libmame.h`, backward compatible): a `machine_frame` callback once per emulated frame, `myosd_get_memory_share` / `_region`, `myosd_get_state_item` (a device's save-state variables), `myosd_read_memory` (side-effect-free) and `myosd_set/clear_analog_input`. `myosd_main` now honours `callbacks_size`. The first user is **[arkanoid3d/](arkanoid3d/README.md)**, the original arcade Arkanoid presented as a 3D RealityKit playfield, built from its video RAM each frame.
 - Unverified until a Mac builds it:
   - The Swift, Metal and RealityKit code has never been compiled. The `LowLevelTexture` / `TextureResource(from:)` calls in particular are written from Apple's docs and WWDC material.
   - Colours in theater mode: RealityKit may treat the `bgra8Unorm` texture as linear. If it looks washed out or too dark, try `bgra8Unorm_srgb`.

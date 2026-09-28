@@ -7,6 +7,8 @@
 
 // MAME headers
 #include "emu.h"
+#include "drivenum.h"
+#include "screen.h"
 #include "render.h"
 #include "rendlay.h"
 #include "ui/uimain.h"
@@ -191,6 +193,19 @@ void ios_osd_interface::update(bool skip_redraw)
 
     apply_host_requests();
     send_geometry();
+
+    // let the host look at the machine's state once per emulated frame,
+    // whether or not this frame gets drawn (see libmame.h)
+    if (m_callbacks.machine_frame != NULL && machine().phase() == machine_phase::RUNNING &&
+        &machine().system() != &GAME_NAME(___empty))
+    {
+        screen_device *const screen = screen_device_enumerator(machine().root_device()).first();
+        myosd_frame_info info;
+        info.frame_number = (screen != nullptr) ? screen->frame_number() : 0;
+        info.skipped = skip_redraw ? 1 : 0;
+        info.paused = machine().paused() ? 1 : 0;
+        m_callbacks.machine_frame(&info);
+    }
 
     // if skipping this redraw, bail
     if (skip_redraw || (m_callbacks.video_draw == NULL && m_callbacks.video_draw_pixels == NULL) || m_video_none)

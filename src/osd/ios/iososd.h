@@ -107,6 +107,9 @@ extern std::atomic<int> myosd_zoom_request;
 extern std::atomic<bool> myosd_zoom_to_screen;
 extern std::atomic<bool> myosd_suppress_native_3d;
 
+// the running machine, between osd init() and machine exit (state.cpp)
+extern running_machine *g_ios_machine;
+
 //============================================================
 //  OPTIONS
 //============================================================

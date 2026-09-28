@@ -16,6 +16,8 @@
 //      myosd_main
 //      myosd_get
 //      myosd_set
+//      myosd_get_memory_share, myosd_get_memory_region,
+//      myosd_read_memory, myosd_set/clear_analog_input
 //
 //============================================================
 
@@ -419,6 +421,13 @@ typedef struct {
     int count;
 } myosd_geometry_frame;             // only valid for the duration of the callback
 
+// passed to the machine_frame callback, once per emulated frame
+typedef struct {
+    uint64_t frame_number;      // frame counter of the machine's first screen (0 if it has none)
+    int skipped;                // 1 if this frame will not be drawn (frameskip); state is still valid
+    int paused;                 // 1 while the emulation is paused (the same frame repeats)
+} myosd_frame_info;
+
 // MYOSD app callback functions
 typedef struct {
 
@@ -453,10 +462,93 @@ typedef struct {
     // the driver skip rasterizing that geometry itself (2D layers still draw).
     void (*geometry_frame)(const myosd_geometry_frame* frame);
 
+    // OPTIONAL (appended after video_draw_pixels, keep at the end for ABI compatibility):
+    // called on the MAME thread once per emulated frame while a game runs,
+    // after the machine has produced the frame and before it is drawn (also
+    // on skipped frames and with -video none).  The emulated CPUs are stopped
+    // for the duration, so this is the place to read machine state with the
+    // myosd_*_memory functions below and get a consistent snapshot, and to
+    // set analog inputs for the next frame.  Keep it short: the emulation
+    // waits for it.
+    void (*machine_frame)(const myosd_frame_info* info);
+
 }   myosd_callbacks;
 
 // main entry point
 extern int myosd_main(int argc, char** argv, myosd_callbacks* callbacks, size_t callbacks_size);
+
+//============================================================
+//  machine state access (added for the visionOS port)
+//
+//  Lets a host read emulated memory and drive analog inputs, e.g. to present
+//  a game's state differently (a 3D playfield built from video RAM).
+//
+//  THREADING: only call these on the MAME thread, from inside a callback
+//  (machine_frame is the intended one; input_poll and video_draw* also
+//  work).  Outside a running game (no machine, or during startup/exit) they
+//  fail harmlessly.
+//
+//  TAGS are MAME device paths.  A leading ':' is optional; ":maincpu",
+//  "maincpu", ":videoram" and "videoram" all work.  Shares and regions are
+//  named in the driver's address map / ROM definitions
+//  (e.g. map(0xe000, 0xe7ff).ram().share("videoram")).
+//============================================================
+
+// a block of emulated memory (a memory share or a ROM/memory region)
+typedef struct {
+    void*    base;              // live pointer into the emulated machine's memory
+    size_t   bytes;             // size in bytes
+    int      bitwidth;          // width of the memory: 8, 16, 32 or 64
+    int      big_endian;        // 1 if multi-byte units are stored big-endian
+} myosd_memory_block;
+
+// address spaces for myosd_read_memory (same numbering as MAME's AS_*)
+enum {
+    MYOSD_AS_PROGRAM = 0,
+    MYOSD_AS_DATA    = 1,
+    MYOSD_AS_IO      = 2,
+    MYOSD_AS_OPCODES = 3,
+};
+
+// Look up a memory share (RAM declared with .share("name") in an address map).
+// On success fills *block and returns 0; returns -1 if there is no running
+// machine or no such share.  block->base stays valid, and keeps tracking the
+// live contents, until the game exits (game_exit callback); reading it from
+// another thread is possible but gives no consistency guarantee.
+extern int myosd_get_memory_share(const char* tag, myosd_memory_block* block);
+
+// Same for a memory region (usually ROM, e.g. "maincpu" or "gfx1").
+extern int myosd_get_memory_region(const char* tag, myosd_memory_block* block);
+
+// Look up a variable a device registered for save states (save_item), e.g.
+// myosd_get_state_item(":", "m_flip_screen_x", &b) for the driver's flip
+// flag.  This reaches state that lives in no memory share, such as
+// write-only registers the driver latches into member variables.  `name` is
+// the registered name (the member name for save_item(NAME(m_x))).  Stored in
+// host byte order.  Returns 0 and fills *block, or -1.  Same lifetime as
+// myosd_get_memory_share.  Save-item names are internal to each driver and
+// may change between MAME versions.
+extern int myosd_get_state_item(const char* device_tag, const char* name, myosd_memory_block* block);
+
+// Read `length` bytes from a device's address space, as the CPU would see
+// them, starting at `address`, into `buffer`.  Uses MAME's debugger
+// convention (side effects disabled), so reading I/O ports does not
+// acknowledge interrupts, pop FIFOs and so on, as far as each device honours
+// it.  Addresses are byte addresses and wrap at the end of the space; spaces
+// that aren't byte-addressed (address shift != 0) are refused.  Returns the
+// number of bytes read: `length` on success, 0 on failure.
+extern size_t myosd_read_memory(const char* device_tag, int spacenum, uint32_t address, void* buffer, size_t length);
+
+// Override the value an analog input field reads (a dial, paddle, pedal,
+// ...), replacing whatever the mapped controls would produce.  `port_tag` is
+// the input port (e.g. ":P1"), `mask` selects the field in it (e.g. 0xff),
+// and `value` is the raw field value, clamped to the field's range.  For a
+// relative control such as a dial, the host keeps its own counter and
+// sets it here, e.g. to move a paddle to an absolute position in a closed
+// loop.  The override lasts until myosd_clear_analog_input.  Returns 0, or -1
+// if there is no such analog field.
+extern int myosd_set_analog_input(const char* port_tag, uint32_t mask, int32_t value);
+extern int myosd_clear_analog_input(const char* port_tag, uint32_t mask);
 
 #if defined(__cplusplus)
 }

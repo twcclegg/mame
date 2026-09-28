@@ -66,6 +66,7 @@ project ("osd_" .. _OPTIONS["osd"])
         MAME_DIR .. "src/osd/ios/sound.cpp",
         MAME_DIR .. "src/osd/ios/input.cpp",
         MAME_DIR .. "src/osd/ios/osdlib.cpp",
+        MAME_DIR .. "src/osd/ios/state.cpp",
         MAME_DIR .. "src/osd/ios/paste.mm",
 	}
 
