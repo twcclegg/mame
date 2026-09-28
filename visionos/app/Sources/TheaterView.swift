@@ -56,8 +56,10 @@ final class ScreenUpdater {
     private var lastSerial = -1
     private var info = FrameInfo()
     private var staging: [MTLTexture?] = [nil, nil, nil, nil]
+    // All reads/writes happen on the main actor (update() directly; the
+    // command buffer completion handler by hopping back via Task
+    // { @MainActor in ... }), so this needs no separate lock.
     private var stagingBusy = [Bool](repeating: false, count: 4)
-    private let busyLock = NSLock()
     private var current = 0
     private var output: LowLevelTexture?
     private var outputSize = (width: 0, height: 0)
@@ -82,10 +84,7 @@ final class ScreenUpdater {
         frames.read(since: lastSerial) { pixels, frame in
             let width = frame.width, height = frame.height
             let next = (current + 1) % staging.count
-            busyLock.lock()
-            let busy = stagingBusy[next]
-            busyLock.unlock()
-            guard !busy else { return }   // GPU still reading it: take this frame next time
+            guard !stagingBusy[next] else { return }   // GPU still reading it: take this frame next time
 
             var tex = staging[next]
             if tex == nil || tex!.width != width || tex!.height != height {
@@ -126,10 +125,15 @@ final class ScreenUpdater {
         enc.endEncoding()
 
         let slot = current
-        busyLock.lock(); stagingBusy[slot] = true; busyLock.unlock()
+        stagingBusy[slot] = true
         cmd.addCompletedHandler { [weak self] _ in
-            guard let self else { return }
-            self.busyLock.lock(); self.stagingBusy[slot] = false; self.busyLock.unlock()
+            // Metal's completion handler runs on an internal, non-main-actor
+            // thread; hop back onto the main actor before touching
+            // stagingBusy, which is @MainActor-isolated storage now that
+            // ScreenUpdater is.
+            Task { @MainActor [weak self] in
+                self?.stagingBusy[slot] = false
+            }
         }
         cmd.commit()
     }
