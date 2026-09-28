@@ -48,7 +48,39 @@ Most of what we need is already in the tree:
 
 The **native `src/osd/mac` OSD** (~3,100 lines, Cocoa, bgfx, GameController, no SDL)
 is the template for a later **native visionOS OSD**. We'd want that once we need
-SwiftUI/RealityKit to own the app, which is phase 2 of display.
+SwiftUI/RealityKit to own the app, which is phase 2 of display. **But see §1a:**
+MAME4iOS has already built exactly this kind of OSD for iOS.
+
+---
+
+## 1a. Prior art: MAME4iOS (added 2026-09-28, missed in the first pass)
+
+[yoshisuga/MAME4iOS](https://github.com/yoshisuga/MAME4iOS) is an actively maintained
+port of current MAME to iOS, iPadOS, tvOS and Mac Catalyst. The Xcode config shows
+`MARKETING_VERSION = 2026.6` and an App Store build flag. It is the closest prior
+work, and it **already solves most of phase 2** (the native OSD) for UIKit.
+
+**How it's put together:**
+- **Two repos.** The app (UIKit, Objective-C and Swift, GPL-2.0) lives in MAME4iOS. MAME itself comes from a fork, [ToddLa/mame](https://github.com/ToddLa/mame), which tracks upstream closely: it's at **0.288**, one version behind this tree. The fork adds an `OSD=ios` layer (`src/osd/ios/`, about 1,400 lines, BSD-3 headers) and `make-ios.sh`, which builds MAME as a **static library** (`libmame-ios.a`, `-tvos`, `-mac`, plus simulator variants). The app downloads prebuilt libs from the fork's releases (`get-libmame.sh`) or links locally built ones.
+- **The interface** is a small C callback API (`src/osd/ios/libmame.h`): `myosd_main(argc, argv, callbacks)`, with callbacks for `video_draw(myosd_render_primitive *list, w, h)`, `input_poll`, `sound_play`, `game_list` and so on. MAME hands over **render primitive lists** (quads and lines with textures and UVs), and the app draws them in its own **Metal renderer**, which comes with CRT and vector shaders (`megaTron`, `lineTron`, `ulTron`, `simpleTron`).
+- **No bgfx and no SDL.** The app owns UIKit, Metal, GameController, audio and the file UI. MAME is purely a library.
+- **No JIT**, the same as ours: `make-ios.sh` sets `FORCE_DRC_C_BACKEND=1`. They also expose a "Use DRC" toggle, because some DRC games (e.g. NFL Blitz) misbehave with the C backend on arm64 and run better with `-nodrc` (the interpreter). That's worth knowing for us too.
+- **No visionOS target yet.** Neither the Xcode project nor `make-ios.sh` mentions `xros`.
+
+**What this means for us:**
+1. **The quickest check of all:** see whether the App Store's iPad build of MAME4iOS installs on the Vision Pro as a "compatible iPad app". If it does, we have a baseline for performance and input today, with no build at all. **[check on device]**
+2. **The `myosd` API is the native OSD that §5 (phase 2a) proposed writing.** A primitive list is the ideal input for spatial presentation: our own Metal or RealityKit code can draw the game screen, bezels and artwork as separate layers or quads, and render per-eye through Compositor Services later. Reusing it beats writing a new OSD from `src/osd/mac`.
+3. **Adding a visionOS slice to their pipeline looks small:** a `visionos` / `visionos-simulator` case in `make-ios.sh` (`-target arm64-apple-xros2.0 -isysroot $(xcrun --sdk xros --show-sdk-path)`), plus a visionOS destination in their Xcode targets. Most of their UIKit app should compile for visionOS. `UIScreen`-based sizing, the TopShelf/tvOS bits and the web server may need `#if`s. **[verify on Mac]**
+
+**Revised recommendation:** Path A has since reached first light (milestone 2), so this is now a phase-2 decision.
+- **Path A, SDL3 (this branch, runs in the simulator):** stock upstream structure, no app code, bgfx shader chains. Good for a *plain window*, but spatial features would need a rewrite later.
+- **Path B, `myosd` / libmame:** either (B1) build MAME4iOS itself for visionOS, the quickest way to a *polished* app with menus, controllers and file import, or (B2) write our own SwiftUI + RealityKit app against `libmame.h`, which is the best base for goals 2–4 (spatial display, 3D). B2 can borrow B1's Metal renderer and shaders.
+
+The work already done on Path A carries over to B only in part. The toolchain
+knowledge, JIT findings and sandbox paths apply to both; the bgfx and bx patches
+don't matter for B, which doesn't use bgfx. The likely end state is **B2 built on
+ToddLa's `ios` OSD**, possibly upstreamed into this fork as `OSD=ios` with an added
+`xros` target, and with Path A kept as a debugging fallback.
 
 ---
 
@@ -198,6 +230,8 @@ on visionOS) as a final pass in the RealityKit presenter.
 
 ## 8. Proposed milestones (for the Mac agent)
 
+0. **Prior-art checks (§1a):** see whether MAME4iOS from the App Store runs on the Vision Pro as an iPad app (a zero-build baseline to compare against). For phase 2, try adding an `xros` slice to ToddLa's `make-ios.sh`.
+
 1. **Toolchain sanity:** ✅ done. SDL3.xcframework built from source with visionOS device+simulator slices (needed one upstream SDL3 patch, see README); `3rdparty` libs and all of MAME build and link for both `visionos-clang` and `visionos-sim-clang`.
 2. **Tiny MAME for the simulator:** ✅ done, and launched. `MAME-sim.app` (built with `SOURCES=src/mame/pacman/pacman.cpp`) runs in the visionOS 26.5 Simulator (`xcrun simctl launch` + `xcrun simctl io screenshot`, no `Simulator.app` GUI needed — this Xcode install doesn't even ship one) and renders MAME's system-select UI as a floating Metal window in the Shared Space. Two blockers on the way, both now fixed: the build machine's CoreSimulator/Xcode version mismatch (fixed by the user updating macOS to 27.0, matching Xcode 27), and two runtime bugs (SDL's UIKit backend needing scene-lifecycle support — use SDL ≥3.4.0 — and a `FLAG_SDL_NEEDS_OPENGL` bug in `drawsdl3accel.cpp`). See README.md Status for the exact fixes. Not yet tried: an actual ROM (only the ROM-less frontend has been shown), and the `visionOS 27.0` Simulator runtime on this machine turned out to be broken (`liblaunch_sim.dylib could not be opened`) — 26.5 worked fine.
 3. **Device build:** ✅ compiles and links (`make visionos`). Code signing with a real dev team and on-device run are still untested.
@@ -218,6 +252,8 @@ on visionOS) as a final pass in the RealityKit presenter.
 5. ~~**Hardware:**~~ answered: **M2**. Budget accordingly. Interpreted classic systems will be fine. With the C DRC backend, heavy recompiler-era systems (Model 3, Naomi, Saturn, N64, Seattle/Vegas) will likely fall short of full speed, and the frame budget also has to cover rendering at visionOS's 90 Hz compositor rate.
 
 ## References
+- MAME4iOS (app): https://github.com/yoshisuga/MAME4iOS
+- ToddLa/mame (MAME fork with `OSD=ios`, `make-ios.sh`, `src/osd/ios/libmame.h`): https://github.com/ToddLa/mame
 - SDL3 visionOS platform macro: https://wiki.libsdl.org/SDL3/SDL_PLATFORM_VISIONOS
 - SDL visionOS support PR: https://github.com/libsdl-org/SDL/pull/8027
 - bgfx upstream (visionOS support in bx/bgfx master): https://github.com/bkaradzic/bgfx
