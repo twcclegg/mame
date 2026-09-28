@@ -54,12 +54,13 @@ final class GameStateStore: @unchecked Sendable {
     }
 
     /// A few numbers for the HUD (any thread).
-    struct Summary { var available = false; var bricks = 0; var highScore = -1; var balls = 0 }
+    struct Summary { var available = false; var bricks = 0; var score = -1; var highScore = -1; var balls = 0 }
     func summary() -> Summary {
         lock.lock(); defer { lock.unlock() }
         guard available else { return Summary() }
         return Summary(available: true, bricks: Int(state.pointee.brick_count),
-                       highScore: Int(state.pointee.high_score), balls: Int(state.pointee.ball_count))
+                       score: Int(state.pointee.score), highScore: Int(state.pointee.high_score),
+                       balls: Int(state.pointee.ball_count))
     }
 
     var isAvailable: Bool {
@@ -87,7 +88,6 @@ final class ArkanoidStateReader: @unchecked Sendable {
     private let decoded = UnsafeMutablePointer<ark3d_state>.allocate(capacity: 1)
     private let calibration = UnsafeMutablePointer<ark3d_calibration>.allocate(capacity: 1)
     private var layout = ark3d_layout()
-    private var hasCalibration = false
 
     private var supported = false
     private var ready = false
@@ -100,6 +100,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
         graphics.initialize(to: ark3d_graphics())
         decoded.initialize(to: ark3d_state())
         calibration.initialize(to: ark3d_calibration())
+        ark3d_default_calibration(calibration)
         ark3d_default_layout(&layout)
     }
 
@@ -188,7 +189,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
             input.work_ram = gotRAM ? ram.baseAddress : nil
             input.work_ram_bytes = gotRAM ? ram.count : 0
             ark3d_decode(&input, &layout, graphics.pointee.valid != 0 ? UnsafePointer(graphics) : nil,
-                         hasCalibration ? UnsafePointer(calibration) : nil, decoded)
+                         UnsafePointer(calibration), decoded)
         }
 
         paddle.frame(state: decoded, layout: layout)
@@ -197,7 +198,8 @@ final class ArkanoidStateReader: @unchecked Sendable {
 
     // MARK: - calibration
 
-    /// Optional Documents/arkanoid3d.json, e.g.
+    /// The verified code tables (ark3d_default_calibration), plus optional
+    /// overrides from Documents/arkanoid3d.json, e.g.
     ///   { "tiles":    { "0x1a0": "gold", "0x1a1": "gold", "0x1c0": "silver" },
     ///     "sprites":  { "0x010": "vaus", "0x011": "vaus", "0x020": "ball" },
     ///     "capsules": { "0x040": "L" },
@@ -205,9 +207,8 @@ final class ArkanoidStateReader: @unchecked Sendable {
     /// Codes include the gfx bank (+0x800 for tiles, +0x400 for sprites).
     /// Kind names are ark3d_kind_name()'s.  See README.md for how to find codes.
     private func loadCalibration() {
-        calibration.update(repeating: ark3d_calibration(), count: 1)
+        ark3d_default_calibration(calibration)
         ark3d_default_layout(&layout)
-        hasCalibration = false
         let url = MAMEEngine.prepareDocuments().appendingPathComponent("arkanoid3d.json")
         guard let data = try? Data(contentsOf: url),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
@@ -224,17 +225,17 @@ final class ArkanoidStateReader: @unchecked Sendable {
 
         withUnsafeMutableBytes(of: &calibration.pointee.tile_kind) { raw in
             for (key, value) in (json["tiles"] as? [String: String]) ?? [:] {
-                if let c = code(key), c >= 0, c < raw.count, let k = kinds[value] { raw[c] = k; hasCalibration = true }
+                if let c = code(key), c >= 0, c < raw.count, let k = kinds[value] { raw[c] = k }
             }
         }
         withUnsafeMutableBytes(of: &calibration.pointee.sprite_kind) { raw in
             for (key, value) in (json["sprites"] as? [String: String]) ?? [:] {
-                if let c = code(key), c >= 0, c < raw.count, let k = kinds[value] { raw[c] = k; hasCalibration = true }
+                if let c = code(key), c >= 0, c < raw.count, let k = kinds[value] { raw[c] = k }
             }
         }
         withUnsafeMutableBytes(of: &calibration.pointee.sprite_capsule) { raw in
             for (key, value) in (json["capsules"] as? [String: String]) ?? [:] {
-                if let c = code(key), c >= 0, c < raw.count, let k = capsules[value] { raw[c] = k; hasCalibration = true }
+                if let c = code(key), c >= 0, c < raw.count, let k = capsules[value] { raw[c] = k }
             }
         }
         if let l = json["layout"] as? [String: Int] {

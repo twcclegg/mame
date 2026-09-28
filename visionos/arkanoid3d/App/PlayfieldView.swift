@@ -87,6 +87,7 @@ struct HUDView: View {
             let s = ArkanoidStateReader.shared.store.summary()
             HStack(spacing: 24) {
                 if s.available {
+                    label("1UP", s.score >= 0 ? String(s.score) : "—")
                     label("HIGH SCORE", s.highScore >= 0 ? String(s.highScore) : "—")
                     label("BRICKS", String(s.bricks))
                 } else {

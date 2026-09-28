@@ -10,10 +10,13 @@
 // would otherwise use for the dial, so the stick and d-pad are handled here
 // too (as target velocity).
 //
-// How many pixels the Vaus moves per count, and in which direction, depends
-// on the game's program; it's measured while playing (px/count over a window
-// of frames) rather than assumed.  Starts at +1 px/count.  UNVERIFIED on
-// hardware: the default step limits may need tuning (README "Next steps").
+// Measured on the real game (a Lua bot driving the same loop through the
+// same analog override, visionos/arkanoid3d/lua/ark3d_bot.lua): about +1 px
+// per count, positive to the right.  The magnitude is still learned while
+// playing (px/count over a window of frames); the sign is not, because a
+// window with a wrong sign (e.g. the Vaus being re-centred for a new life)
+// used to flip it, after which the loop pushed the Vaus into a wall, where it
+// can't learn, forever.
 
 import Foundation
 import GameController
@@ -51,7 +54,7 @@ final class PaddleController: @unchecked Sendable {
     // MAME-thread state
     private var target: Float?
     private var counter: Int32 = 0
-    private var gain: Float = 1                 // measured px per count (signed)
+    private var gain: Float = 1                 // measured px per count (the game: about +1)
     private var windowSteps: Int32 = 0
     private var windowMove: Float = 0
     private var windowFrames = 0
@@ -102,15 +105,14 @@ final class PaddleController: @unchecked Sendable {
 
         // learn px/count from the last few frames (window long enough that the
         // game's reaction delay doesn't matter), ignoring moves into a wall
-        if let last = lastVausX {
+        if let last = lastVausX, s.vaus_phase == Int32(ARK3D_VAUS_NORMAL.rawValue) {
             windowMove += vausX - last
             windowFrames += 1
             if windowFrames >= 8 {
                 if abs(windowSteps) >= 8 && vausX > minX + 2 && vausX < maxX - 2 {
                     let measured = windowMove / Float(windowSteps)
-                    if abs(measured) > 0.1 && abs(measured) < 10 {
+                    if measured > 0.25 && measured < 4 {
                         gain = gain * 0.6 + measured * 0.4
-                        if abs(gain) < 0.25 { gain = measured }   // crossed zero: take the new sign
                     }
                 }
                 windowSteps = 0; windowMove = 0; windowFrames = 0

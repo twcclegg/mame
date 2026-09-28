@@ -136,6 +136,7 @@ static void test_playfield(const ark3d_graphics *g, int with_graphics)
         CHECK_NEAR(st.vaus_y, 236);
 
     CHECK_EQ(st.high_score, 50000);
+    CHECK_EQ(st.score, 270);
 
     if (!with_graphics)
     {
@@ -210,6 +211,61 @@ static void test_banks_and_calibration(const ark3d_graphics *g)
     (void)g;
 }
 
+// the codes verified against the real game (ark3d_default_calibration),
+// placed the way the game draws them: every object has a drop shadow, a copy
+// in colour 8 offset down and right
+static void test_default_calibration(void)
+{
+    static ark3d_calibration cal;
+    ark3d_default_calibration(&cal);
+
+    build_screen();
+    memset(spriteram, 0, sizeof(spriteram));       // unused slots are all zero in the game
+    put_sprite(0, 116, 236, 0x0f2, 8);              // Vaus shadow
+    put_sprite(1, 100, 236, 0x0f3, 8);
+    put_sprite(2, 112, 232, 0x0f2, 0x0a);           // Vaus
+    put_sprite(3, 96, 232, 0x0f3, 0x0a);
+    put_sprite(4, 42, 122, 0x193, 8);               // capsule shadow
+    put_sprite(5, 40, 120, 0x193, 0x13);            // an L capsule, rotation frame 3
+    put_sprite(6, 80, 150, 0x1b8, 0x0c);            // ball
+    put_sprite(7, 80, 176, 0x1d8, 0x00);            // "ROUND" text
+
+    ark3d_input in;
+    memset(&in, 0, sizeof(in));
+    in.videoram = videoram;
+    in.spriteram = spriteram;
+
+    ark3d_state st;
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.vaus_visible, 1);
+    CHECK_EQ(st.vaus_phase, ARK3D_VAUS_NORMAL);
+    CHECK_NEAR(st.vaus_x, 112);                     // cells 96-128, not the shadow's 100-132
+    CHECK_NEAR(st.vaus_y, 236);
+    CHECK_EQ(st.ball_count, 1);
+    CHECK_EQ(st.object_count, 1);                   // the capsule; shadows and text aren't objects
+    CHECK_EQ(st.objects[0].kind, ARK3D_KIND_CAPSULE);
+    CHECK_EQ(st.objects[0].capsule, ARK3D_CAPSULE_L);
+    // the synthetic walls aren't the game's wall tiles, so no round is on screen
+    CHECK_EQ(st.in_play, 0);
+
+    // the game's walls: a round is on screen, and its bricks are decoded
+    for (int r = 2; r < ARK3D_VIEW_ROWS; r++)
+    {
+        put_tile(0, r, 0x120, 0x1c);
+        put_tile(27, r, 0x120, 0x1c);
+    }
+    put_tile(1, 7, 0x16e, 0x19);                    // silver brick at cell (0, 4)
+    put_tile(2, 7, 0x16f, 0x19);
+    put_tile(3, 8, 0x166, 0x18);                    // red brick at cell (1, 5)
+    put_tile(4, 8, 0x167, 0x18);
+    put_sprite(2, 112, 232, 0x10b, 0x09);           // the Vaus blowing up
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.in_play, 1);
+    CHECK_EQ(st.bricks[4][0].kind, ARK3D_KIND_BRICK_SILVER);
+    CHECK_EQ(st.bricks[5][1].kind, ARK3D_KIND_BRICK);
+    CHECK_EQ(st.vaus_phase, ARK3D_VAUS_EXPLODING);
+}
+
 static void test_bad_input(void)
 {
     ark3d_state st;
@@ -229,6 +285,7 @@ int main(void)
     test_playfield(&g, 1);
     test_playfield(&g, 0);
     test_banks_and_calibration(&g);
+    test_default_calibration();
     test_bad_input();
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;

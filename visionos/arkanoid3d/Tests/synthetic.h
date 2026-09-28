@@ -198,7 +198,8 @@ static void build_scene(void)
     put_sprite(5, 150, 68, S_ENEMY, C_SPRITE);
     put_sprite(6, 30, 180, S_LASER, C_SPRITE);
 
-    workram[0x4df] = 0x05; workram[0x4e0] = 0x00; workram[0x4e1] = 0x00;
+    workram[0x4d7] = 0x00; workram[0x4d8] = 0x00; workram[0x4d9] = 0x27;   // score 270 (BCD, x10)
+    workram[0x4df] = 0x00; workram[0x4e0] = 0x50; workram[0x4e1] = 0x00;   // high score 50000
 
 }
 

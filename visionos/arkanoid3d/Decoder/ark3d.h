@@ -73,8 +73,18 @@ typedef enum {
     ARK3D_KIND_LASER,
     ARK3D_KIND_EXPLOSION,
     ARK3D_KIND_OTHER,
+    ARK3D_KIND_VAUS_APPEARING,  // the Vaus materialising at the start of a life
+    ARK3D_KIND_VAUS_EXPLODING,  // the Vaus blowing up after losing the ball
     ARK3D_KIND_COUNT
 } ark3d_kind;
+
+// what the Vaus is doing (ark3d_state.vaus_phase)
+typedef enum {
+    ARK3D_VAUS_NONE = 0,        // not on screen
+    ARK3D_VAUS_NORMAL,
+    ARK3D_VAUS_APPEARING,
+    ARK3D_VAUS_EXPLODING
+} ark3d_vaus_phase;
 
 // power-up capsules, identified by their colour
 typedef enum {
@@ -89,9 +99,10 @@ typedef enum {
     ARK3D_CAPSULE_COUNT
 } ark3d_capsule;
 
-// optional exact tables, filled from a calibration file once the
-// codes have been read off a real ROM (see ARKANOID_STATE.md).
-// UNKNOWN entries fall back to the heuristics.
+// exact tables by code.  ark3d_default_calibration fills in the codes
+// verified against captures of the real game (see ARKANOID_STATE.md); a
+// calibration file can add to or override them.  UNKNOWN entries fall
+// back to the heuristics.
 typedef struct {
     uint8_t tile_kind[ARK3D_NUM_CHARS];         // by tile code (incl. gfx bank: +2048)
     uint8_t sprite_kind[ARK3D_NUM_CHARS / 2];   // by sprite code (incl. gfx bank: +1024)
@@ -127,7 +138,7 @@ typedef struct {
     int gfxbank;                    // d008 bit 5 (driver: m_gfxbank)
     int palettebank;                // d008 bit 6 (driver: m_palettebank)
     int flip_x, flip_y;             // d008 bits 0,1 (cocktail); informational
-    const uint8_t *work_ram;        // optional: c000-c7ff (2 KB), for the score
+    const uint8_t *work_ram;        // optional: c000-c7ff (2 KB), for the scores
     size_t work_ram_bytes;
 } ark3d_input;
 
@@ -192,14 +203,19 @@ typedef struct {
     float vaus_x, vaus_y;           // centre
     float vaus_w, vaus_h;
     int vaus_laser;                 // only from calibration
+    int vaus_phase;                 // ark3d_vaus_phase
 
     ark3d_object balls[ARK3D_MAX_BALLS];
     int ball_count;
     ark3d_object objects[ARK3D_MAX_OBJECTS];    // capsules, enemies, lasers, other
     int object_count;
 
+    int in_play;                    // a round's playfield is on screen (not the title,
+                                    // high-score or intro screens); bricks are only
+                                    // decoded then
     int flipped;                    // screen flipped for player 2 in cocktail mode
-    int high_score;                 // -1 if unknown; see ARKANOID_STATE.md
+    int score;                      // player's score, -1 if unknown (no work RAM)
+    int high_score;                 // -1 if unknown
 } ark3d_state;
 
 //------------------------------------------------------------
@@ -207,6 +223,10 @@ typedef struct {
 //------------------------------------------------------------
 
 void ark3d_default_layout(ark3d_layout *layout);
+
+// the codes verified against the real game (graphics bank 0), plus the
+// intro sequence's bank-1 sprites as OTHER
+void ark3d_default_calibration(ark3d_calibration *calibration);
 
 // decode the gfx1 and proms regions (either may be NULL: then valid=0)
 void ark3d_analyze_graphics(ark3d_graphics *graphics, const uint8_t *gfx, size_t gfx_bytes,

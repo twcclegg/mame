@@ -149,9 +149,61 @@ void ark3d_default_layout(ark3d_layout *l)
     l->grid_rows = 22;          // down to y=200; later rounds reach about 18 rows
     l->brick_w = 16;
     l->brick_h = 8;
-    l->reference_top = 208;     // rows between the lowest bricks and the Vaus
-    l->reference_bottom = 224;
-    l->vaus_min_y = 200;
+    // [game] rows 26-29 (y 208-239) never hold bricks and cover a whole
+    // period of every round's background pattern (it repeats every 4 rows)
+    l->reference_top = 208;
+    l->reference_bottom = 240;
+    l->vaus_min_y = 224;        // [game] the Vaus's sprites sit at y 232
+}
+
+//------------------------------------------------------------
+//  calibration verified against the real game
+//------------------------------------------------------------
+
+static void fill(uint8_t *table, int first, int last, int value)
+{
+    for (int code = first; code <= last; code++)
+        table[code] = (uint8_t)value;
+}
+
+// [game] all graphics bank 0 (the game itself); read off captures of
+// arkanoid (World) with visionos/arkanoid3d/lua/ark3d_capture.lua and the
+// ROM's own graphics.  See ARKANOID_STATE.md, "Verified codes".
+void ark3d_default_calibration(ark3d_calibration *cal)
+{
+    memset(cal, 0, sizeof(*cal));
+
+    // tiles: the eight coloured bricks are pairs (left even, right odd)
+    // 15e-16d: white, orange, cyan, green, red, blue, magenta, yellow.
+    // Silver is 16e/16f; 170-179 are its shimmer and hit animations.
+    // Gold hasn't been seen yet (rounds 1-2): the heuristics handle it.
+    // Each round's background is learned (see ark3d_decode).
+    fill(cal->tile_kind, 0x000, 0x0ff, ARK3D_KIND_TEXT);            // the font, scores
+    fill(cal->tile_kind, 0x11e, 0x129, ARK3D_KIND_WALL);            // side walls and the top wall
+    fill(cal->tile_kind, 0x15e, 0x16d, ARK3D_KIND_BRICK);
+    fill(cal->tile_kind, 0x16e, 0x179, ARK3D_KIND_BRICK_SILVER);
+
+    // sprites
+    // sprites.  The Vaus is 2 sprites at y 232 (3 when enlarged, with 0be
+    // in the middle); every object also has a shadow copy in colour 8.
+    fill(cal->sprite_kind, 0x0be, 0x0be, ARK3D_KIND_VAUS);          // enlarged Vaus, middle section
+    fill(cal->sprite_kind, 0x0e8, 0x0f1, ARK3D_KIND_VAUS_APPEARING);
+    fill(cal->sprite_kind, 0x0f2, 0x0f3, ARK3D_KIND_VAUS);
+    fill(cal->sprite_kind, 0x0f4, 0x103, ARK3D_KIND_VAUS);          // turning into the laser Vaus
+    fill(cal->sprite_kind, 0x104, 0x105, ARK3D_KIND_VAUS_LASER);
+    fill(cal->sprite_kind, 0x106, 0x129, ARK3D_KIND_VAUS_EXPLODING);
+    fill(cal->sprite_kind, 0x150, 0x17f, ARK3D_KIND_ENEMY);         // types of 2 stacked sprites x 8 frames
+    fill(cal->sprite_kind, 0x180, 0x1b7, ARK3D_KIND_CAPSULE);       // 7 letters x 8 rotation frames
+    fill(cal->sprite_kind, 0x1b8, 0x1b8, ARK3D_KIND_BALL);
+    fill(cal->sprite_kind, 0x1bd, 0x1bd, ARK3D_KIND_LASER);         // a shot, rising 5 px a frame
+    fill(cal->sprite_kind, 0x1be, 0x1c9, ARK3D_KIND_EXPLOSION);     // an enemy destroyed
+    fill(cal->sprite_kind, 0x1cb, 0x1cc, ARK3D_KIND_TEXT);          // "ROUND n" / "READY"
+    fill(cal->sprite_kind, 0x1d4, 0x1e0, ARK3D_KIND_TEXT);
+    fill(cal->sprite_kind, 0x400, 0x7ff, ARK3D_KIND_OTHER);         // bank 1: the intro story
+
+    // capsule letters in the order of ark3d_capsule: S C L E D B P
+    for (int code = 0x180; code <= 0x1b7; code++)
+        cal->sprite_capsule[code] = (uint8_t)(ARK3D_CAPSULE_S + (code - 0x180) / 8);
 }
 
 //------------------------------------------------------------
@@ -211,6 +263,22 @@ static void fallback_rgb(uint8_t color, uint8_t rgb[3])
     rgb[0] = h[0]; rgb[1] = h[1]; rgb[2] = h[2];
 }
 
+// [game] shadow sprites use a colour whose pens are all black (colour 8 in
+// the game's palette); without the palette, assume colour 8
+static int is_shadow_color(const ark3d_graphics *g, uint8_t color)
+{
+    if (g == NULL)
+        return (color & 31) == 8;
+    for (int pen = 1; pen < 8; pen++)
+    {
+        uint8_t rgb[3];
+        pen_rgb(g, color, pen, rgb);
+        if (rgb[0] | rgb[1] | rgb[2])
+            return 0;
+    }
+    return 1;
+}
+
 static int calibrated_tile_kind(const ark3d_calibration *cal, uint16_t code)
 {
     return cal ? cal->tile_kind[code & (ARK3D_NUM_CHARS - 1)] : ARK3D_KIND_UNKNOWN;
@@ -240,6 +308,12 @@ static int nearest_capsule(const uint8_t rgb[3])
         if (d < bestd) { bestd = d; best = i; }
     }
     return best;
+}
+
+static int is_vaus_kind(int kind)
+{
+    return kind == ARK3D_KIND_VAUS || kind == ARK3D_KIND_VAUS_LASER ||
+           kind == ARK3D_KIND_VAUS_APPEARING || kind == ARK3D_KIND_VAUS_EXPLODING;
 }
 
 typedef struct {
@@ -308,6 +382,22 @@ static void set_object(ark3d_object *o, const ark3d_graphics *g, const sprite_en
     sprite_rgb(g, s, o->rgb);
 }
 
+// 6 BCD digits x 10 points at work RAM offset `at`, or -1 if unreadable
+static int read_score(const ark3d_input *in, size_t at)
+{
+    if (in->work_ram == NULL || in->work_ram_bytes < at + 3)
+        return -1;
+    int value = 0;
+    for (size_t i = 0; i < 3; i++)
+    {
+        int const hi = in->work_ram[at + i] >> 4, lo = in->work_ram[at + i] & 15;
+        if (hi > 9 || lo > 9)
+            return -1;
+        value = value * 100 + hi * 10 + lo;
+    }
+    return value * 10;
+}
+
 //------------------------------------------------------------
 //  ark3d_decode
 //------------------------------------------------------------
@@ -328,7 +418,6 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
 
     memset(st, 0, sizeof(*st));
     st->flipped = (in->flip_x || in->flip_y) ? 1 : 0;
-    st->high_score = -1;
 
     // ---- tilemap in view order.  [driver] get_bg_tile_info:
     // code = ram[2i+1] + ((ram[2i] & 7) << 8) + 2048*gfxbank,
@@ -343,24 +432,75 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             st->tile_color[r][c] = (uint8_t)((attr >> 3) + 32 * (in->palettebank & 1));
         }
 
-    // ---- learn the background: [heuristic] the band between the lowest
-    // bricks and the Vaus never holds bricks, and the background is a
-    // repeating pattern, so its tiles are the background tiles.
-    key_set background;
+    // ---- learn the background: [game] the band between the lowest bricks
+    // and the Vaus never holds bricks and covers a whole period of the
+    // round's background pattern, so its tiles are the background tiles.
+    // Drop shadows (of bricks and the walls) are the same tiles drawn in a
+    // dark colour.  Most of the band is lit, so each code's commonest colour
+    // there is its lit colour.
+    key_set background, background_codes;
     background.count = 0;
-    for (int r = layout.reference_top / 8; r < layout.reference_bottom / 8 && r < ARK3D_VIEW_ROWS; r++)
-        for (int c = layout.field_left / 8; c < layout.field_right / 8 && c < ARK3D_VIEW_COLS; c++)
-            if (calibrated_tile_kind(cal, st->tile_code[r][c]) == ARK3D_KIND_UNKNOWN)
-                set_add(&background, tile_key(st->tile_code[r][c], st->tile_color[r][c]));
+    background_codes.count = 0;
+    {
+        key_set seen;
+        int seen_n[256];
+        seen.count = 0;
+        for (int r = layout.reference_top / 8; r < layout.reference_bottom / 8 && r < ARK3D_VIEW_ROWS; r++)
+            for (int c = layout.field_left / 8; c < layout.field_right / 8 && c < ARK3D_VIEW_COLS; c++)
+            {
+                if (calibrated_tile_kind(cal, st->tile_code[r][c]) != ARK3D_KIND_UNKNOWN)
+                    continue;
+                uint32_t const k = tile_key(st->tile_code[r][c], st->tile_color[r][c]);
+                int i = 0;
+                while (i < seen.count && seen.keys[i] != k)
+                    i++;
+                if (i == seen.count)
+                {
+                    if (seen.count == 256)
+                        continue;
+                    seen.keys[seen.count++] = k;
+                    seen_n[i] = 0;
+                }
+                seen_n[i]++;
+                set_add(&background_codes, k & 0xfff);
+            }
+        for (int i = 0; i < seen.count; i++)
+        {
+            int lit = 1;
+            for (int j = 0; j < seen.count; j++)
+                if (j != i && (seen.keys[j] & 0xfff) == (seen.keys[i] & 0xfff) && seen_n[j] > seen_n[i])
+                    lit = 0;
+            if (lit)
+                set_add(&background, seen.keys[i]);
+        }
+    }
 
     for (int r = 0; r < ARK3D_VIEW_ROWS; r++)
         for (int c = 0; c < ARK3D_VIEW_COLS; c++)
         {
             int kind = calibrated_tile_kind(cal, st->tile_code[r][c]);
-            if (kind == ARK3D_KIND_UNKNOWN && set_has(&background, tile_key(st->tile_code[r][c], st->tile_color[r][c])))
-                kind = ARK3D_KIND_BACKGROUND;
+            if (kind == ARK3D_KIND_UNKNOWN && set_has(&background_codes, st->tile_code[r][c]))
+                kind = set_has(&background, tile_key(st->tile_code[r][c], st->tile_color[r][c]))
+                    ? ARK3D_KIND_BACKGROUND : ARK3D_KIND_SHADOW;
             st->tile_kind[r][c] = (uint8_t)kind;
         }
+
+    // ---- is a round on screen?  [game] the playfield's side walls are
+    // there (not on the title, high-score and intro screens).  Without
+    // calibrated wall tiles, assume it is.
+    {
+        int walls = 0, rows = 0;
+        for (int r = layout.field_top / 8; r < ARK3D_VIEW_ROWS; r++, rows++)
+        {
+            walls += st->tile_kind[r][0] == ARK3D_KIND_WALL;
+            walls += st->tile_kind[r][ARK3D_VIEW_COLS - 1] == ARK3D_KIND_WALL;
+        }
+        int calibrated_walls = 0;
+        if (cal != NULL)
+            for (int code = 0; code < ARK3D_NUM_CHARS && !calibrated_walls; code++)
+                calibrated_walls = cal->tile_kind[code] == ARK3D_KIND_WALL;
+        st->in_play = calibrated_walls ? (walls >= rows) : 1;
+    }
 
     // ---- bricks
     st->grid_cols = layout.grid_cols < ARK3D_MAX_GRID_COLS ? layout.grid_cols : ARK3D_MAX_GRID_COLS;
@@ -372,7 +512,7 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             int const y = layout.grid_top + br * layout.brick_h;
             int const tc0 = x / 8, tc1 = (x + layout.brick_w - 1) / 8;
             int const tr0 = y / 8, tr1 = (y + layout.brick_h - 1) / 8;
-            if (tc1 >= ARK3D_VIEW_COLS || tr1 >= ARK3D_VIEW_ROWS)
+            if (tc1 >= ARK3D_VIEW_COLS || tr1 >= ARK3D_VIEW_ROWS || !st->in_play)
                 continue;
 
             ark3d_brick *b = &st->bricks[br][bc];
@@ -447,16 +587,19 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         e->code = (uint16_t)((s[3] + ((s[2] & 0x03) << 8) + 1024 * (in->gfxbank & 1)) & (ARK3D_NUM_CHARS / 2 - 1));
         e->color = (uint8_t)((s[2] >> 3) + 32 * (in->palettebank & 1));
         e->kind = calibrated_sprite_kind(cal, e->code);
-        // skip what can't be seen: off the view, or a blank graphic
+        // skip what can't be seen: off the view, or a blank graphic, and
+        // [game] drop shadows: every object has a copy drawn in a colour
+        // whose pens are all black, offset down and right
         e->used = (e->x > -16 && e->x < ARK3D_VIEW_W && e->y < ARK3D_VIEW_H) &&
-                  (g == NULL || g->sprites[e->code].opaque > 0);
+                  (g == NULL || g->sprites[e->code].opaque > 0) &&
+                  !is_shadow_color(g, e->color);
     }
 
     // Vaus: calibrated sprites, else [heuristic] the lowest row (>= vaus_min_y)
     // of two or more side-by-side sprites.  Its y never changes in play.
     int vaus_y = -1, have_cal_vaus = 0;
     for (int i = 0; i < ARK3D_NUM_SPRITES; i++)
-        if (spr[i].used && (spr[i].kind == ARK3D_KIND_VAUS || spr[i].kind == ARK3D_KIND_VAUS_LASER))
+        if (spr[i].used && is_vaus_kind(spr[i].kind))
         {
             have_cal_vaus = 1;
             vaus_y = spr[i].y;
@@ -486,7 +629,7 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         {
             sprite_entry *e = &spr[i];
             int const member = have_cal_vaus
-                ? (e->used && (e->kind == ARK3D_KIND_VAUS || e->kind == ARK3D_KIND_VAUS_LASER))
+                ? (e->used && is_vaus_kind(e->kind))
                 : (e->used && e->kind == ARK3D_KIND_UNKNOWN && e->y == vaus_y);
             if (!member)
                 continue;
@@ -498,9 +641,15 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             if (d > y1) y1 = d;
             if (e->kind == ARK3D_KIND_VAUS_LASER)
                 st->vaus_laser = 1;
+            if (e->kind == ARK3D_KIND_VAUS_EXPLODING)
+                st->vaus_phase = ARK3D_VAUS_EXPLODING;
+            else if (e->kind == ARK3D_KIND_VAUS_APPEARING && st->vaus_phase != ARK3D_VAUS_EXPLODING)
+                st->vaus_phase = ARK3D_VAUS_APPEARING;
             e->used = 0;                        // consumed
         }
         st->vaus_visible = 1;
+        if (st->vaus_phase == ARK3D_VAUS_NONE)
+            st->vaus_phase = ARK3D_VAUS_NORMAL;
         st->vaus_x = (x0 + x1) * 0.5f;
         st->vaus_y = (y0 + y1) * 0.5f;
         st->vaus_w = x1 - x0;
@@ -514,6 +663,8 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         if (!e->used)
             continue;
         int kind = e->kind;
+        if (kind == ARK3D_KIND_TEXT)
+            continue;
 
         if (kind == ARK3D_KIND_UNKNOWN && g != NULL)
         {
@@ -581,21 +732,11 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         }
     }
 
-    // ---- high score: [heuristic] plugins/hiscore/hiscore.dat saves 3 bytes
-    // at c4df for these sets; read as 6 BCD digits, most significant first.
-    if (in->work_ram != NULL && in->work_ram_bytes >= 0x4e2)
-    {
-        const uint8_t *p = in->work_ram + 0x4df;
-        int value = 0, ok = 1;
-        for (int i = 0; i < 3; i++)
-        {
-            int const hi = p[i] >> 4, lo = p[i] & 15;
-            if (hi > 9 || lo > 9)
-                ok = 0;
-            value = value * 100 + hi * 10 + lo;
-        }
-        st->high_score = ok ? value : -1;
-    }
+    // ---- scores: [game] 3 BCD bytes each, most significant first, in units
+    // of 10 points: the player's at c4d7, the high score at c4df.  Checked
+    // against the digits on screen over about 58,000 captured frames.
+    st->score = read_score(in, 0x4d7);
+    st->high_score = read_score(in, 0x4df);
     return 0;
 }
 
@@ -607,7 +748,8 @@ const char *ark3d_kind_name(int kind)
 {
     static const char *const names[ARK3D_KIND_COUNT] = {
         "unknown", "background", "shadow", "wall", "brick", "silver", "gold", "text",
-        "vaus", "vaus_laser", "ball", "capsule", "enemy", "laser", "explosion", "other"
+        "vaus", "vaus_laser", "ball", "capsule", "enemy", "laser", "explosion", "other",
+        "vaus_appearing", "vaus_exploding"
     };
     return (kind >= 0 && kind < ARK3D_KIND_COUNT) ? names[kind] : "?";
 }

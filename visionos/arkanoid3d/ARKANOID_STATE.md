@@ -8,9 +8,9 @@ kept apart:
   This is how the hardware works, and it's exact.
 - **[game]**: what the *game program* puts in that hardware: which tile is a
   gold brick, which sprite is the Vaus. None of that is in MAME's source. It
-  lives in the ROMs. We don't have a ROM, so every **[game]** item is a
-  heuristic or an assumption that still has to be checked with one.
-  Tests/`run_e2e.sh` and `lua/ark3d_capture.lua` are there for that.
+  lives in the ROMs. §10 lists what has been checked against captures of the
+  real game (`lua/ark3d_bot.lua` + `lua/ark3d_capture.lua`); anything
+  **[game]** that isn't there is still a heuristic.
 
 ## 1. Memory map [driver]
 
@@ -178,21 +178,57 @@ and Start is Start 1 (:586).
 steps n. **[game]** How many pixels one count moves the Vaus is measured while
 playing, not assumed, and it starts at +1 px per count.
 
-## 8. Score [game]
+## 8. Score [game, verified]
 
-`plugins/hiscore/hiscore.dat` (entries at about line 15160) saves 3 bytes at
-`c4df`, plus a 35-byte table at `ef79`, for `arkanoid` and its clones. The
-decoder reads `c4df-c4e1` as 6 BCD digits, most significant first, and shows
-that as the high score (-1 if it isn't valid BCD). Both the meaning and the
-byte order are unverified. The current player's score hasn't been located.
-The ways to find it are to look near `c4df` in a capture, or to read the digit
-tiles in view rows 0–1 once the font's codes are known.
+Both scores are 3 BCD bytes, most significant first, in units of 10 points:
+the player's at `c4d7-c4d9`, the high score at `c4df-c4e1` (the 3 bytes
+`plugins/hiscore/hiscore.dat` saves). So `00 27 00` at `c4d7` would be 2,700
+points, and `00 50 00` at `c4df` is the default high score of 50,000. Checked
+against the digit tiles in view row 1 over about 58,000 captured frames; the
+only mismatches are the frame where the display lags RAM by one update.
 
 ## 9. Validation status
 
 | What | Status |
 |---|---|
 | Formulas in §2–§6 against MAME's source | done (above) |
-| Decoder on synthetic data | `make -C Tests`: 88 checks pass, gcc and clang, `-Werror -Wconversion` |
-| Share, region and save-item names, capture format, decoding through a real MAME build (Linux, `SOURCES=src/mame/taito/arkanoid.cpp`) | `Tests/run_e2e.sh` passes, using placeholder ROM files and an injected synthetic scene |
-| Heuristics and layout against the real game | **not done, needs a ROM**: capture a session and run `ark3d_dump --codes` / `-f N` (see README) |
+| Decoder on synthetic data | `make -C Tests`: 105 checks pass, `-Werror -Wconversion` |
+| Share, region and save-item names, capture format, decoding through a real MAME build | `Tests/run_e2e.sh` (placeholder ROMs); and real captures, below |
+| Codes, layout and scores against the real game | **done for rounds 1–2** (§10): about 36,000 frames of `arkanoid` (World) played by `lua/ark3d_bot.lua` on macOS MAME 0.289 |
+| Gold bricks, rounds 3–33, DOH, the Disruption (3-ball) state, the B warp | not seen yet: the bot rarely clears a round. Unknown codes fall back to the heuristics |
+
+## 10. Verified codes [game, verified]
+
+All in graphics bank 0 (the game; bank 1 is only used by the intro story).
+`ark3d_default_calibration` holds these tables; a calibration file can
+override them.
+
+**Tiles**
+
+| Codes | What |
+|---|---|
+| `000-0ff` | font: scores, "HIGH SCORE", title and high-score screens |
+| `11e-129` | walls: the side walls (view columns 0 and 27) and the top wall (row 2). A round is on screen (`in_play`) only while the side walls are there |
+| `15e-16d` | coloured bricks, pairs (left even, right odd): white, orange, cyan, green, red, blue, magenta, yellow |
+| `16e-16f` | silver brick; `170-179` are its shimmer and hit animations |
+| round 1: `186-191` colour `1c`; round 2: `192-1a1` colour `1d` | background, a pattern 3 tiles wide and 4 rows tall. The same tiles in colour `05` / `06` are the drop shadow of the bricks and walls. The decoder learns each round's background from rows 26–29 (a full period, never any bricks) |
+
+**Sprites** (every object also has a shadow copy, drawn in colour 8, whose
+pens are all black, offset +4,+4 for the Vaus and +2,+2 for capsules)
+
+| Codes | What |
+|---|---|
+| `0f2`,`0f3` | the Vaus, two sprites at y 232 (colour cycles `09-0c`) |
+| `0be` | the enlarged Vaus's middle section (3 sprites, 48 px) |
+| `0e8-0f1` | the Vaus materialising at the start of a life |
+| `0f4-103` | turning into the laser Vaus; `104`,`105` the laser Vaus |
+| `106-129` | the Vaus exploding (up to 3x3 sprites) |
+| `150-17f` | enemies: 2 stacked sprites (16x16), 8 animation frames per type |
+| `180-1b7` | capsules: 7 letters x 8 rotation frames, in the order S C L E D B P, so the letter is `(code - 0x180) / 8` |
+| `1b8` | the ball |
+| `1bd` | a laser shot, rising 5 px a frame |
+| `1be-1c9` | an enemy destroyed |
+| `1cb-1cc`, `1d4-1e0` | "ROUND n" and "READY" |
+
+**Paddle.** The spinner moves the Vaus about +1 px per count (to the right),
+measured by the bot through the same analog override the app uses.

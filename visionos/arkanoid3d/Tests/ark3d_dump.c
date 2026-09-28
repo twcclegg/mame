@@ -93,24 +93,26 @@ static void print_detail(const ark3d_state *st)
                o->kind == ARK3D_KIND_CAPSULE ? ark3d_capsule_name(o->capsule) : "",
                o->x, o->y, o->w, o->h, o->sprite, o->code, o->color, o->rgb[0], o->rgb[1], o->rgb[2]);
     }
-    printf("high score: %d%s\n", st->high_score, st->flipped ? "  (screen flipped)" : "");
+    printf("score: %d  high score: %d%s\n", st->score, st->high_score, st->flipped ? "  (screen flipped)" : "");
 }
 
 int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        fprintf(stderr, "usage: %s capture.bin [-f frame] [--codes]\n", argv[0]);
+        fprintf(stderr, "usage: %s capture.bin [-f frame] [--codes] [--heuristic]\n", argv[0]);
         return 2;
     }
     long detail_frame = -1;
-    int codes = 0;
+    int codes = 0, heuristic = 0;
     for (int i = 2; i < argc; i++)
     {
         if (!strcmp(argv[i], "-f") && i + 1 < argc)
             detail_frame = strtol(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--codes"))
             codes = 1;
+        else if (!strcmp(argv[i], "--heuristic"))
+            heuristic = 1;          // ignore the verified code tables
     }
 
     FILE *f = fopen(argv[1], "rb");
@@ -138,6 +140,9 @@ int main(int argc, char **argv)
     if (!graphics.valid)
         fprintf(stderr, "warning: no usable gfx1/proms in the capture; decoding without graphics\n");
 
+    static ark3d_calibration calibration;
+    ark3d_default_calibration(&calibration);
+
     // --codes: (code,colour) counts per kind of place, and sprite codes by decoded kind
     static unsigned brick_codes[ARK3D_NUM_CHARS][64];
     static unsigned sprite_codes[ARK3D_NUM_CHARS / 2][ARK3D_KIND_COUNT];
@@ -157,7 +162,7 @@ int main(int argc, char **argv)
         in.flip_y = rec.flip_y;
         in.work_ram = rec.workram;
         in.work_ram_bytes = sizeof(rec.workram);
-        ark3d_decode(&in, NULL, graphics.valid ? &graphics : NULL, NULL, &st);
+        ark3d_decode(&in, NULL, graphics.valid ? &graphics : NULL, heuristic ? NULL : &calibration, &st);
         n++;
 
         if (codes)
@@ -182,14 +187,15 @@ int main(int argc, char **argv)
         }
         else
         {
+            static const char *const phase[] = { "(none)", "", "appearing", "exploding" };
             printf("frame %6u bricks %3d vaus %s%6.1f w%5.1f balls %d", rec.frame, st.brick_count,
-                   st.vaus_visible ? "" : "(none)", st.vaus_x, st.vaus_w, st.ball_count);
+                   phase[st.vaus_phase & 3], st.vaus_x, st.vaus_w, st.ball_count);
             for (int i = 0; i < st.ball_count; i++)
                 printf(" (%.0f,%.0f)", st.balls[i].x, st.balls[i].y);
             for (int i = 0; i < st.object_count; i++)
                 printf(" %s%s", ark3d_kind_name(st.objects[i].kind),
                        st.objects[i].kind == ARK3D_KIND_CAPSULE ? ark3d_capsule_name(st.objects[i].capsule) : "");
-            printf(" hi %d\n", st.high_score);
+            printf(" score %d hi %d\n", st.score, st.high_score);
         }
     }
     fclose(f);
