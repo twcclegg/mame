@@ -61,13 +61,14 @@ final class GameStateStore: @unchecked Sendable {
     }
 
     /// A few numbers for the HUD (any thread).
-    struct Summary { var available = false; var bricks = 0; var score = -1; var highScore = -1; var balls = 0 }
+    struct Summary { var available = false; var bricks = 0; var score = -1; var highScore = -1; var balls = 0; var lives = -1 }
     func summary() -> Summary {
         lock.lock(); defer { lock.unlock() }
         guard available else { return Summary() }
         return Summary(available: true, bricks: Int(state.pointee.brick_count),
                        score: Int(state.pointee.score), highScore: Int(state.pointee.high_score),
-                       balls: Int(state.pointee.ball_count))
+                       balls: Int(state.pointee.ball_count),
+                       lives: state.pointee.spare_lives >= 0 ? Int(state.pointee.spare_lives) + 1 : -1)
     }
 
     var isAvailable: Bool {

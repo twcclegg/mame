@@ -34,6 +34,7 @@ final class PlayfieldScene {
     private var floorKey: [UInt32] = []             // background tiles the floor texture shows
     private var textures: [String: TextureResource] = [:]
     private var texturesLoading: Set<String> = []
+    private var spriteMaterials: [String: RealityKit.Material] = [:]
     private var screen: ScreenUpdater?
 
     private let store: GameStateStore
@@ -58,6 +59,7 @@ final class PlayfieldScene {
     private var balls: [BallModel] = []
     private var ballPos: [SIMD2<Float>] = []
     private var capsules: [ModelEntity] = []
+    private var lifeIcons: [VausModel] = []         // spare lives, bottom left, as the game shows them
     private var enemies: [EnemyModel] = []
     private var lasers: [ModelEntity] = []
     private var smoothed: [ObjectIdentifier: SIMD2<Float>] = [:]
@@ -230,6 +232,16 @@ final class PlayfieldScene {
         vaus.isEnabled = false
         field.addChild(vaus)
 
+        for i in 0..<5 {
+            let icon = VausModel()
+            icon.setWidth(16)
+            icon.scale = SIMD3(repeating: 0.75)
+            icon.position = local(Float(8 + 16 * i + 8), Float(ARK3D_VIEW_H) - 4, 0)
+            icon.isEnabled = false
+            field.addChild(icon)
+            lifeIcons.append(icon)
+        }
+
         for _ in 0..<Int(ARK3D_MAX_BALLS) {
             let b = BallModel()
             b.isEnabled = false
@@ -241,7 +253,8 @@ final class PlayfieldScene {
 
         // capsules: a pill that shows the game's own capsule sprite on top; the
         // game animates it through 8 frames, so the letter rolls as it falls
-        let pill = MeshResource.generateBox(width: 15 * s, height: 6 * s, depth: 7 * s, cornerRadius: 3 * s)
+        // a bit bigger than the game's (16x8) so the letter reads at table-top scale
+        let pill = MeshResource.generateBox(width: 20 * s, height: 7 * s, depth: 9.5 * s, cornerRadius: 3.5 * s)
         for _ in 0..<4 {
             let c = ModelEntity(mesh: pill, materials: [SimpleMaterial()])
             c.components.set(GroundingShadowComponent(castsShadow: true))
@@ -448,11 +461,16 @@ final class PlayfieldScene {
     /// use (nil until then); pen 0 becomes the sprite's outline colour.
     private func spriteMaterial(code: Int, color: Int) -> RealityKit.Material? {
         let key = "s\(code)/\(color)"
+        if let m = spriteMaterials[key] { return m }
         if let texture = textures[key] {
             var m = PhysicallyBasedMaterial()
             m.baseColor = .init(tint: .white, texture: .init(texture))
-            m.roughness = .init(floatLiteral: 0.25)
-            m.clearcoat = .init(floatLiteral: 1)
+            // the sprite glows a little, so the letter stays legible in any light
+            m.emissiveColor = .init(color: .white, texture: .init(texture))
+            m.emissiveIntensity = 0.2
+            m.roughness = .init(floatLiteral: 0.45)
+            m.clearcoat = .init(floatLiteral: 0.25)
+            spriteMaterials[key] = m
             return m
         }
         guard !texturesLoading.contains(key), let art = store.art,
@@ -527,6 +545,13 @@ final class PlayfieldScene {
             gateGlows[g].isEnabled = gateShown[g] > 0.05
         }
 
+        let spare = Int(s.spare_lives)
+        if spare >= 0 {
+            for (i, icon) in lifeIcons.enumerated() { icon.isEnabled = i < spare }
+        } else if outOfPlay > 2.5 {
+            lifeIcons.forEach { $0.isEnabled = false }
+        }
+
         // Vaus: materialises by growing, explodes into sparks
         let phase = s.vaus_phase
         if phase != vausPhase {
@@ -577,6 +602,8 @@ final class PlayfieldScene {
             case Int(ARK3D_KIND_CAPSULE.rawValue) where ci < capsules.count:
                 let c = capsules[ci]; ci += 1
                 place(c, o, height: 3.5 * Self.metresPerPixel, dt: dt)
+                // a gentle bob, so falling capsules read as objects above the floor
+                c.position.y += (1 + sin(spin * 6 + Float(ci))) * 0.6 * Self.metresPerPixel
                 c.model?.materials = [spriteMaterial(code: Int(o.code), color: Int(o.color))
                                       ?? capsuleMaterial(Int(o.capsule))]
             case Int(ARK3D_KIND_ENEMY.rawValue) where ei < enemies.count:

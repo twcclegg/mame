@@ -174,8 +174,6 @@ when `gfxbank` is 1.
 
 - Reach later rounds for captures: a better bot, or a debug start-round
   override (find the round number in work RAM).
-- Find the lives counter in work RAM (the score is at `c4d7`, see
-  ARKANOID_STATE.md §8).
 - More effects from diffing states: a flash and a sound-synced particle burst
   when silver bricks are hit (their tiles animate), a shockwave on the
   Disruption split, a glow trail on the ball, and the warp gate on the right

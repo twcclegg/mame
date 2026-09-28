@@ -121,6 +121,7 @@ struct HUDView: View {
                 if s.available {
                     label("1UP", s.score >= 0 ? String(s.score) : "—")
                     label("HIGH SCORE", s.highScore >= 0 ? String(s.highScore) : "—")
+                    label("LIVES", s.lives >= 0 ? String(s.lives) : "—")
                     label("BRICKS", String(s.bricks))
                 } else {
                     Text("Start an Arkanoid set from the control window")

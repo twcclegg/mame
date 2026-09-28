@@ -182,6 +182,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     fill(cal->tile_kind, 0x710, 0x719, ARK3D_KIND_TEXT);            // the attract demo's "GAME OVER" banner
     fill(cal->tile_kind, 0x11e, 0x129, ARK3D_KIND_WALL);            // side walls and the top wall
     fill(cal->tile_kind, 0x14a, 0x15d, ARK3D_KIND_WALL);            // enemy hatches opening (see gate_open)
+    fill(cal->tile_kind, 0x184, 0x185, ARK3D_KIND_TEXT);            // spare-life icons (see spare_lives)
     fill(cal->tile_kind, 0x15e, 0x16d, ARK3D_KIND_BRICK);
     fill(cal->tile_kind, 0x16e, 0x179, ARK3D_KIND_BRICK_SILVER);
 
@@ -518,6 +519,18 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
                 step = (code - 0x14a) / 4 + 1;
             st->gate_open[gate] = (float)step / 5.0f;
         }
+    }
+
+    // ---- spare lives: [game] a Vaus icon (tiles 185, 184) per life left
+    // besides the one in play, along the bottom row from column 1
+    st->spare_lives = -1;
+    if (st->in_play)
+    {
+        int n = 0;
+        for (int c = 1; c + 1 < ARK3D_VIEW_COLS - 1; c += 2, n++)
+            if (st->tile_code[ARK3D_VIEW_ROWS - 1][c] != 0x185 || st->tile_code[ARK3D_VIEW_ROWS - 1][c + 1] != 0x184)
+                break;
+        st->spare_lives = n;
     }
 
     // ---- bricks

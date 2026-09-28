@@ -211,6 +211,7 @@ override them.
 | `11e-129` | walls: the side walls (view columns 0 and 27) and the top wall (row 2). A round is on screen (`in_play`) only while both side walls are there; the game blanks them column by column when it wipes the playfield |
 | `124-127` in row 2, columns 5–8 and 19–22 | the two enemy hatches, closed. Opening runs through `14a`, `14e`, `152`, `156`, `15a` (4 tiles each, 4 frames a step) and closes the same way back (`gate_open`) |
 | `710-719` | the attract demo's "GAME OVER" banner |
+| `185`,`184` in row 31 from column 1 | a spare-life icon each (`spare_lives`): 2 at the start of a game, so 3 lives. The lives count isn't in work RAM (c000-c7ff): no byte there drops by one at each lost life |
 | `15e-16d` | coloured bricks, pairs (left even, right odd): white, orange, cyan, green, red, blue, magenta, yellow |
 | `16e-16f` | silver brick; `170-179` are its shimmer and hit animations |
 | round 1: `186-191` colour `1c`; round 2: `192-1a1` colour `1d` | background, a pattern 3 tiles wide and 4 rows tall. The same tiles in colour `05` / `06` are the drop shadow of the bricks and walls. The decoder learns each round's background from rows 26–29 (a full period, never any bricks) |

@@ -229,6 +229,8 @@ typedef struct {
                                     // decoded then
     int flipped;                    // screen flipped for player 2 in cocktail mode
     int score;                      // player's score, -1 if unknown (no work RAM)
+    int spare_lives;                // Vaus icons in the bottom-left corner (lives
+                                    // left besides the one in play); -1 if not in play
     int high_score;                 // -1 if unknown
 } ark3d_state;
 
