@@ -271,6 +271,13 @@ static void test_default_calibration(void)
     CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
     CHECK_EQ(st.bricks[5][1].kind, ARK3D_KIND_BRICK);
     CHECK_EQ(st.vaus_phase, ARK3D_VAUS_EXPLODING);
+    // gold: the silver tiles in colour 1b; it doesn't count as breakable
+    int const breakable = st.brick_count;
+    put_tile(5, 7, 0x16e, 0x1b);
+    put_tile(6, 7, 0x16f, 0x1b);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.bricks[4][2].kind, ARK3D_KIND_BRICK_GOLD);
+    CHECK_EQ(st.brick_count, breakable);
     CHECK_NEAR(st.gate_open[0], 0);
     CHECK_EQ(st.spare_lives, 0);
     put_tile(1, 31, 0x185, 0x1c); put_tile(2, 31, 0x184, 0x1c);

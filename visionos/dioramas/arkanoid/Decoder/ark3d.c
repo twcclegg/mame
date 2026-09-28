@@ -176,7 +176,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     // tiles: the eight coloured bricks are pairs (left even, right odd)
     // 15e-16d: white, orange, cyan, green, red, blue, magenta, yellow.
     // Silver is 16e/16f; 170-179 are its shimmer and hit animations.
-    // Gold hasn't been seen yet (rounds 1-2): the heuristics handle it.
+    // Gold is the silver tiles in colour 1b (see ark3d_decode).
     // Each round's background is learned (see ark3d_decode).
     fill(cal->tile_kind, 0x000, 0x0ff, ARK3D_KIND_TEXT);            // the font, scores
     fill(cal->tile_kind, 0x710, 0x719, ARK3D_KIND_TEXT);            // the attract demo's "GAME OVER" banner
@@ -200,7 +200,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     fill(cal->sprite_kind, 0x1b8, 0x1b8, ARK3D_KIND_BALL);
     fill(cal->sprite_kind, 0x1bd, 0x1bd, ARK3D_KIND_LASER);         // a shot, rising 5 px a frame
     fill(cal->sprite_kind, 0x1be, 0x1c9, ARK3D_KIND_EXPLOSION);     // an enemy destroyed
-    fill(cal->sprite_kind, 0x1cb, 0x1cc, ARK3D_KIND_TEXT);          // "ROUND n" / "READY"
+    fill(cal->sprite_kind, 0x1cb, 0x1d3, ARK3D_KIND_TEXT);          // "ROUND n" (1cc-1d3 its digits) / "READY"
     fill(cal->sprite_kind, 0x1d4, 0x1e0, ARK3D_KIND_TEXT);
     fill(cal->sprite_kind, 0x400, 0x7ff, ARK3D_KIND_OTHER);         // bank 1: the intro story
 
@@ -550,8 +550,11 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             b->code = st->tile_code[tr0][tc0];
             b->color = st->tile_color[tr0][tc0];
 
-            // a calibrated brick tile decides directly
-            int const ckind = calibrated_tile_kind(cal, b->code);
+            // a calibrated brick tile decides directly.  [game] gold uses the
+            // silver tiles in colour 1b (silver is colour 19)
+            int ckind = calibrated_tile_kind(cal, b->code);
+            if (ckind == ARK3D_KIND_BRICK_SILVER && (b->color & 31) == 0x1b)
+                ckind = ARK3D_KIND_BRICK_GOLD;
             int kind = ARK3D_KIND_UNKNOWN;
             if (ckind == ARK3D_KIND_BRICK || ckind == ARK3D_KIND_BRICK_SILVER || ckind == ARK3D_KIND_BRICK_GOLD)
                 kind = ckind;

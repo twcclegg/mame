@@ -195,7 +195,8 @@ only mismatches are the frame where the display lags RAM by one update.
 | Decoder on synthetic data | `make -C Tests`: 105 checks pass, `-Werror -Wconversion` |
 | Share, region and save-item names, capture format, decoding through a real MAME build | `Tests/run_e2e.sh` (placeholder ROMs); and real captures, below |
 | Codes, layout and scores against the real game | **done for rounds 1–2** (§10): about 36,000 frames of `arkanoid` (World) played by `lua/ark3d_bot.lua` on macOS MAME 0.289 |
-| Gold bricks, rounds 3–33, DOH, the Disruption (3-ball) state, the B warp | not seen yet: the bot rarely clears a round. Unknown codes fall back to the heuristics |
+| Rounds 3–32 | swept with a test script that clears each round (bricks-remaining counter `ed83` set to 0) and holds the lives bytes (`c006`, `e8a8`, `ed71`, `ed76`); 4 background patterns, gold bricks, no other new brick codes |
+| DOH (round 33), the Disruption (3-ball) state, the B warp | not seen yet. Unknown codes fall back to the heuristics |
 
 ## 10. Verified codes [game, verified]
 
@@ -213,7 +214,7 @@ override them.
 | `710-719` | the attract demo's "GAME OVER" banner |
 | `185`,`184` in row 31 from column 1 | a spare-life icon each (`spare_lives`): 2 at the start of a game, so 3 lives. The lives count isn't in work RAM (c000-c7ff): no byte there drops by one at each lost life |
 | `15e-16d` | coloured bricks, pairs (left even, right odd): white, orange, cyan, green, red, blue, magenta, yellow |
-| `16e-16f` | silver brick; `170-179` are its shimmer and hit animations |
+| `16e-16f` | silver brick in colour `19`, **gold** (indestructible) in colour `1b` (from round 3). `170-179` are silver's shimmer and hit animations |
 | round 1: `186-191` colour `1c`; round 2: `192-1a1` colour `1d` | background, a pattern 3 tiles wide and 4 rows tall. The same tiles in colour `05` / `06` are the drop shadow of the bricks and walls. The decoder learns each round's background from rows 26–29 (a full period, never any bricks) |
 
 **Sprites** (every object also has a shadow copy, drawn in colour 8, whose
@@ -231,7 +232,7 @@ pens are all black, offset +4,+4 for the Vaus and +2,+2 for capsules)
 | `1b8` | the ball |
 | `1bd` | a laser shot, rising 5 px a frame |
 | `1be-1c9` | an enemy destroyed |
-| `1cb-1cc`, `1d4-1e0` | "ROUND n" and "READY" |
+| `1cb-1d3`, `1d4-1e0` | "ROUND n" (`1cc`-`1d3` are its digits, at x 128, y 176) and "READY" |
 
 **Paddle.** The spinner moves the Vaus about +1 px per count (to the right),
 measured by the bot through the same analog override the app uses.
