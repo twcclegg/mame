@@ -1,0 +1,619 @@
+// license:BSD-3-Clause
+//============================================================
+//
+//  ark3d.c - decode Arkanoid's video RAM into a typed game state
+//
+//  See ark3d.h and ARKANOID_STATE.md.  Every formula marked
+//  [driver] is taken from src/mame/taito/arkanoid_v.cpp or
+//  arkanoid.cpp; everything marked [heuristic] is a guess about
+//  the game's graphics that needs checking against a real ROM.
+//
+//============================================================
+
+#include "ark3d.h"
+
+#include <string.h>
+
+//------------------------------------------------------------
+//  coordinate mapping
+//------------------------------------------------------------
+
+// [driver] screen: set_raw(..., 384, 0, 256, 264, 16, 240): 256x224 visible
+// (raw y 16-239), game is ROT90.  ROT90 = SWAP_XY | FLIP_X, so raw pixel
+// (x,y) lands at view (239 - y, x): raw x runs down the view, raw y runs
+// right-to-left.
+void ark3d_raw_to_view(int raw_x, int raw_y, int *view_x, int *view_y)
+{
+    *view_x = 239 - raw_y;
+    *view_y = raw_x;
+}
+
+// [driver] draw_sprites: sx = ram[0], sy = 248 - ram[1]; char 2*code at
+// raw (sx, sy-8), char 2*code+1 at (sx, sy).  So the sprite covers raw x
+// [sx, sx+8), raw y [240-ram[1], 256-ram[1]): in the view, 16 wide x 8 tall
+// at (ram[1]-16, ram[0]).
+void ark3d_sprite_view_rect(const uint8_t *sprite4, int *x, int *y)
+{
+    *x = sprite4[1] - 16;
+    *y = sprite4[0];
+}
+
+// view tile (col 0-27, row 0-31) -> tilemap index.  [driver] TILEMAP_SCAN_ROWS,
+// 32x32 of 8x8: tile index = row*32 + col at raw (col*8, row*8).  View row r
+// is tilemap column r; view column c is tilemap row 29-c (raw y 16-239 are
+// tilemap rows 2-29).
+static int view_tile_index(int col, int row)
+{
+    return (29 - col) * 32 + row;
+}
+
+//------------------------------------------------------------
+//  graphics
+//------------------------------------------------------------
+
+// [driver] charlayout: 8x8, 4096 chars, 3bpp, planes at bit offsets
+// {2*4096*64, 4096*64, 0} (first is the most significant), x offsets 0-7
+// (MSB first within a byte), 8 bytes per char.
+int ark3d_char_pen(const uint8_t *gfx, int code, int px, int py)
+{
+    size_t const row = (size_t)(code & (ARK3D_NUM_CHARS - 1)) * 8 + (size_t)py;
+    int const bit = 7 - px;
+    int const p0 = (gfx[0x10000 + row] >> bit) & 1;
+    int const p1 = (gfx[0x08000 + row] >> bit) & 1;
+    int const p2 = (gfx[0x00000 + row] >> bit) & 1;
+    return (p0 << 2) | (p1 << 1) | p2;
+}
+
+// [driver] PALETTE(..., RGB_444_PROMS, "proms", 512): emupal.cpp
+// palette_init_rgb_444_proms, weights 0x0e/0x1f/0x43/0x8f per bit.
+static uint8_t prom_level(uint8_t nibble)
+{
+    return (uint8_t)(0x0e * ((nibble >> 0) & 1) + 0x1f * ((nibble >> 1) & 1) +
+                     0x43 * ((nibble >> 2) & 1) + 0x8f * ((nibble >> 3) & 1));
+}
+
+void ark3d_analyze_graphics(ark3d_graphics *g, const uint8_t *gfx, size_t gfx_bytes,
+                            const uint8_t *proms, size_t prom_bytes)
+{
+    memset(g, 0, sizeof(*g));
+    if (gfx == NULL || gfx_bytes < ARK3D_GFX_BYTES || proms == NULL || prom_bytes < ARK3D_PROM_BYTES)
+        return;
+
+    for (int i = 0; i < ARK3D_NUM_PENS; i++)
+    {
+        g->rgb[i][0] = prom_level(proms[i]);
+        g->rgb[i][1] = prom_level(proms[i + ARK3D_NUM_PENS]);
+        g->rgb[i][2] = prom_level(proms[i + 2 * ARK3D_NUM_PENS]);
+    }
+
+    for (int code = 0; code < ARK3D_NUM_CHARS; code++)
+    {
+        ark3d_char_info *ci = &g->chars[code];
+        for (int py = 0; py < 8; py++)
+            for (int px = 0; px < 8; px++)
+                ci->pen_count[ark3d_char_pen(gfx, code, px, py)]++;
+        ci->opaque = (uint8_t)(64 - ci->pen_count[0]);
+        int best = 0;
+        for (int pen = 1; pen < 8; pen++)
+            if (ci->pen_count[pen] > (best ? ci->pen_count[best] : 0))
+                best = pen;
+        ci->dominant_pen = (uint8_t)best;
+    }
+
+    // sprites in view space: view (u,v), u 0-15 across, v 0-7 down.  From
+    // ark3d_sprite_view_rect: u covers raw y offset 15-u; offsets 0-7 are
+    // char 2*code, 8-15 char 2*code+1; raw x offset (char px) is v.
+    for (int code = 0; code < ARK3D_NUM_CHARS / 2; code++)
+    {
+        int count = 0, x0 = 16, y0 = 8, x1 = -1, y1 = -1;
+        for (int u = 0; u < 16; u++)
+        {
+            int const off = 15 - u;
+            int const ch = 2 * code + (off >= 8 ? 1 : 0);
+            for (int v = 0; v < 8; v++)
+            {
+                if (ark3d_char_pen(gfx, ch, v, off & 7) == 0)
+                    continue;
+                count++;
+                if (u < x0) x0 = u;
+                if (u > x1) x1 = u;
+                if (v < y0) y0 = v;
+                if (v > y1) y1 = v;
+            }
+        }
+        g->sprites[code].opaque = (uint8_t)count;
+        g->sprites[code].x0 = (int8_t)x0;
+        g->sprites[code].y0 = (int8_t)y0;
+        g->sprites[code].x1 = (int8_t)x1;
+        g->sprites[code].y1 = (int8_t)y1;
+    }
+    g->valid = 1;
+}
+
+//------------------------------------------------------------
+//  layout
+//------------------------------------------------------------
+
+void ark3d_default_layout(ark3d_layout *l)
+{
+    // [heuristic] arcade Arkanoid: 224 px wide view, 8 px side walls, 13
+    // bricks of 16x8 between them (13*16 = 208 = 224 - 2*8); two text rows
+    // (1UP / HIGH SCORE and the scores) and an 8 px wall above the field.
+    l->field_left = 8;
+    l->field_right = 216;
+    l->field_top = 24;
+    l->field_bottom = ARK3D_VIEW_H;
+    l->grid_left = 8;
+    l->grid_top = 24;
+    l->grid_cols = 13;
+    l->grid_rows = 22;          // down to y=200; later rounds reach about 18 rows
+    l->brick_w = 16;
+    l->brick_h = 8;
+    l->reference_top = 208;     // rows between the lowest bricks and the Vaus
+    l->reference_bottom = 224;
+    l->vaus_min_y = 200;
+}
+
+//------------------------------------------------------------
+//  helpers
+//------------------------------------------------------------
+
+typedef struct {
+    uint32_t keys[256];
+    int count;
+} key_set;
+
+static uint32_t tile_key(uint16_t code, uint8_t color) { return (uint32_t)code | ((uint32_t)color << 12); }
+
+static int set_has(const key_set *s, uint32_t k)
+{
+    for (int i = 0; i < s->count; i++)
+        if (s->keys[i] == k)
+            return 1;
+    return 0;
+}
+
+static void set_add(key_set *s, uint32_t k)
+{
+    if (s->count < (int)(sizeof(s->keys) / sizeof(s->keys[0])) && !set_has(s, k))
+        s->keys[s->count++] = k;
+}
+
+static void pen_rgb(const ark3d_graphics *g, int color, int pen, uint8_t rgb[3])
+{
+    const uint8_t *c = g->rgb[((color & 63) * 8 + (pen & 7)) & (ARK3D_NUM_PENS - 1)];
+    rgb[0] = c[0]; rgb[1] = c[1]; rgb[2] = c[2];
+}
+
+// average colour over all 64 pixels of a background tile (pen 0 is opaque in the tilemap)
+static void tile_mean_rgb(const ark3d_graphics *g, uint16_t code, uint8_t color, int rgb[3])
+{
+    const ark3d_char_info *ci = &g->chars[code & (ARK3D_NUM_CHARS - 1)];
+    int sum[3] = {0, 0, 0};
+    for (int pen = 0; pen < 8; pen++)
+    {
+        uint8_t c[3];
+        pen_rgb(g, color, pen, c);
+        for (int k = 0; k < 3; k++)
+            sum[k] += c[k] * ci->pen_count[pen];
+    }
+    for (int k = 0; k < 3; k++)
+        rgb[k] = sum[k] / 64;
+}
+
+// without graphics: a fixed hue per colour attribute so bricks still differ
+static void fallback_rgb(uint8_t color, uint8_t rgb[3])
+{
+    static const uint8_t hues[8][3] = {
+        {240,240,240}, {255,128,0}, {0,200,255}, {0,200,0}, {220,0,0}, {0,64,255}, {255,64,200}, {255,220,0}
+    };
+    const uint8_t *h = hues[color & 7];
+    rgb[0] = h[0]; rgb[1] = h[1]; rgb[2] = h[2];
+}
+
+static int calibrated_tile_kind(const ark3d_calibration *cal, uint16_t code)
+{
+    return cal ? cal->tile_kind[code & (ARK3D_NUM_CHARS - 1)] : ARK3D_KIND_UNKNOWN;
+}
+
+static int calibrated_sprite_kind(const ark3d_calibration *cal, uint16_t code)
+{
+    return cal ? cal->sprite_kind[code & (ARK3D_NUM_CHARS / 2 - 1)] : ARK3D_KIND_UNKNOWN;
+}
+
+// [heuristic] capsule colours as seen in the game: S orange, C green,
+// L red, E blue, D cyan, B pink, P grey
+static int nearest_capsule(const uint8_t rgb[3])
+{
+    static const uint8_t ref[ARK3D_CAPSULE_COUNT][3] = {
+        {0,0,0}, {255,140,0}, {0,200,0}, {220,0,0}, {0,64,255}, {0,210,255}, {255,80,200}, {170,170,170}
+    };
+    int best = ARK3D_CAPSULE_UNKNOWN, bestd = 0x7fffffff;
+    for (int i = 1; i < ARK3D_CAPSULE_COUNT; i++)
+    {
+        int d = 0;
+        for (int k = 0; k < 3; k++)
+        {
+            int const e = (int)rgb[k] - (int)ref[i][k];
+            d += e * e;
+        }
+        if (d < bestd) { bestd = d; best = i; }
+    }
+    return best;
+}
+
+typedef struct {
+    int used;
+    int slot;
+    int x, y;                       // view rect top-left (16x8)
+    uint16_t code;
+    uint8_t color;
+    int kind;                       // calibrated kind, or UNKNOWN
+} sprite_entry;
+
+// dominant non-transparent colour of a sprite (both chars)
+static void sprite_rgb(const ark3d_graphics *g, const sprite_entry *s, uint8_t rgb[3])
+{
+    if (g == NULL || !g->valid)
+    {
+        fallback_rgb(s->color, rgb);
+        return;
+    }
+    int counts[8] = {0};
+    for (int half = 0; half < 2; half++)
+    {
+        const ark3d_char_info *ci = &g->chars[(2 * s->code + half) & (ARK3D_NUM_CHARS - 1)];
+        for (int pen = 1; pen < 8; pen++)
+            counts[pen] += ci->pen_count[pen];
+    }
+    int best = 1;
+    for (int pen = 2; pen < 8; pen++)
+        if (counts[pen] > counts[best])
+            best = pen;
+    pen_rgb(g, s->color, best, rgb);
+}
+
+// opaque bounding box of a sprite in view pixels; falls back to the full cell
+static void sprite_bounds(const ark3d_graphics *g, const sprite_entry *s, float *x0, float *y0, float *x1, float *y1)
+{
+    if (g != NULL && g->valid && g->sprites[s->code].opaque > 0)
+    {
+        *x0 = (float)(s->x + g->sprites[s->code].x0);
+        *y0 = (float)(s->y + g->sprites[s->code].y0);
+        *x1 = (float)(s->x + g->sprites[s->code].x1 + 1);
+        *y1 = (float)(s->y + g->sprites[s->code].y1 + 1);
+    }
+    else
+    {
+        *x0 = (float)s->x;
+        *y0 = (float)s->y;
+        *x1 = (float)(s->x + 16);
+        *y1 = (float)(s->y + 8);
+    }
+}
+
+static void set_object(ark3d_object *o, const ark3d_graphics *g, const sprite_entry *s, int kind)
+{
+    float x0, y0, x1, y1;
+    sprite_bounds(g, s, &x0, &y0, &x1, &y1);
+    memset(o, 0, sizeof(*o));
+    o->x = (x0 + x1) * 0.5f;
+    o->y = (y0 + y1) * 0.5f;
+    o->w = x1 - x0;
+    o->h = y1 - y0;
+    o->kind = (uint8_t)kind;
+    o->sprite = (uint8_t)s->slot;
+    o->code = s->code;
+    o->color = s->color;
+    sprite_rgb(g, s, o->rgb);
+}
+
+//------------------------------------------------------------
+//  ark3d_decode
+//------------------------------------------------------------
+
+int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
+                 const ark3d_graphics *g, const ark3d_calibration *cal, ark3d_state *st)
+{
+    if (in == NULL || in->videoram == NULL || in->spriteram == NULL || st == NULL)
+        return -1;
+    if (g != NULL && !g->valid)
+        g = NULL;
+
+    ark3d_layout layout;
+    if (layout_in)
+        layout = *layout_in;
+    else
+        ark3d_default_layout(&layout);
+
+    memset(st, 0, sizeof(*st));
+    st->flipped = (in->flip_x || in->flip_y) ? 1 : 0;
+    st->high_score = -1;
+
+    // ---- tilemap in view order.  [driver] get_bg_tile_info:
+    // code = ram[2i+1] + ((ram[2i] & 7) << 8) + 2048*gfxbank,
+    // color = (ram[2i] >> 3) + 32*palettebank.  Flip is applied by the
+    // hardware at draw time, so RAM is already in the logical orientation.
+    for (int r = 0; r < ARK3D_VIEW_ROWS; r++)
+        for (int c = 0; c < ARK3D_VIEW_COLS; c++)
+        {
+            int const offs = view_tile_index(c, r) * 2;
+            uint8_t const attr = in->videoram[offs];
+            st->tile_code[r][c] = (uint16_t)(in->videoram[offs + 1] + ((attr & 0x07) << 8) + 2048 * (in->gfxbank & 1));
+            st->tile_color[r][c] = (uint8_t)((attr >> 3) + 32 * (in->palettebank & 1));
+        }
+
+    // ---- learn the background: [heuristic] the band between the lowest
+    // bricks and the Vaus never holds bricks, and the background is a
+    // repeating pattern, so its tiles are the background tiles.
+    key_set background;
+    background.count = 0;
+    for (int r = layout.reference_top / 8; r < layout.reference_bottom / 8 && r < ARK3D_VIEW_ROWS; r++)
+        for (int c = layout.field_left / 8; c < layout.field_right / 8 && c < ARK3D_VIEW_COLS; c++)
+            if (calibrated_tile_kind(cal, st->tile_code[r][c]) == ARK3D_KIND_UNKNOWN)
+                set_add(&background, tile_key(st->tile_code[r][c], st->tile_color[r][c]));
+
+    for (int r = 0; r < ARK3D_VIEW_ROWS; r++)
+        for (int c = 0; c < ARK3D_VIEW_COLS; c++)
+        {
+            int kind = calibrated_tile_kind(cal, st->tile_code[r][c]);
+            if (kind == ARK3D_KIND_UNKNOWN && set_has(&background, tile_key(st->tile_code[r][c], st->tile_color[r][c])))
+                kind = ARK3D_KIND_BACKGROUND;
+            st->tile_kind[r][c] = (uint8_t)kind;
+        }
+
+    // ---- bricks
+    st->grid_cols = layout.grid_cols < ARK3D_MAX_GRID_COLS ? layout.grid_cols : ARK3D_MAX_GRID_COLS;
+    st->grid_rows = layout.grid_rows < ARK3D_MAX_GRID_ROWS ? layout.grid_rows : ARK3D_MAX_GRID_ROWS;
+    for (int br = 0; br < st->grid_rows; br++)
+        for (int bc = 0; bc < st->grid_cols; bc++)
+        {
+            int const x = layout.grid_left + bc * layout.brick_w;
+            int const y = layout.grid_top + br * layout.brick_h;
+            int const tc0 = x / 8, tc1 = (x + layout.brick_w - 1) / 8;
+            int const tr0 = y / 8, tr1 = (y + layout.brick_h - 1) / 8;
+            if (tc1 >= ARK3D_VIEW_COLS || tr1 >= ARK3D_VIEW_ROWS)
+                continue;
+
+            ark3d_brick *b = &st->bricks[br][bc];
+            b->code = st->tile_code[tr0][tc0];
+            b->color = st->tile_color[tr0][tc0];
+
+            // a calibrated brick tile decides directly
+            int const ckind = calibrated_tile_kind(cal, b->code);
+            int kind = ARK3D_KIND_UNKNOWN;
+            if (ckind == ARK3D_KIND_BRICK || ckind == ARK3D_KIND_BRICK_SILVER || ckind == ARK3D_KIND_BRICK_GOLD)
+                kind = ckind;
+            else if (ckind != ARK3D_KIND_UNKNOWN)
+                kind = ARK3D_KIND_UNKNOWN;          // calibrated as something else: empty
+            else
+            {
+                // [heuristic] a brick replaces every tile of its cell; a drop
+                // shadow darkens only part of a neighbouring cell
+                int all_foreign = 1, sum[3] = {0, 0, 0}, n = 0;
+                for (int tr = tr0; tr <= tr1; tr++)
+                    for (int tc = tc0; tc <= tc1; tc++)
+                    {
+                        int const k = st->tile_kind[tr][tc];
+                        if (k == ARK3D_KIND_BACKGROUND || k == ARK3D_KIND_SHADOW || k == ARK3D_KIND_WALL || k == ARK3D_KIND_TEXT)
+                            all_foreign = 0;
+                        if (g)
+                        {
+                            int rgb[3];
+                            tile_mean_rgb(g, st->tile_code[tr][tc], st->tile_color[tr][tc], rgb);
+                            for (int k2 = 0; k2 < 3; k2++)
+                                sum[k2] += rgb[k2];
+                            n++;
+                        }
+                    }
+                if (all_foreign)
+                {
+                    kind = ARK3D_KIND_BRICK;
+                    // [heuristic] shadows are dark in every channel
+                    if (g && n > 0)
+                    {
+                        int const r = sum[0] / n, gg = sum[1] / n, bb = sum[2] / n;
+                        int const v = r > gg ? (r > bb ? r : bb) : (gg > bb ? gg : bb);
+                        if (v < 60)
+                            kind = ARK3D_KIND_UNKNOWN;
+                    }
+                }
+            }
+            if (kind == ARK3D_KIND_UNKNOWN)
+            {
+                b->kind = 0;
+                continue;
+            }
+            b->kind = (uint8_t)kind;
+            if (g)
+                pen_rgb(g, b->color, g->chars[b->code].dominant_pen ? g->chars[b->code].dominant_pen : 0, b->rgb);
+            else
+                fallback_rgb(b->color, b->rgb);
+            if (kind != ARK3D_KIND_BRICK_GOLD)
+                st->brick_count++;
+        }
+
+    // ---- sprites.  [driver] draw_sprites: 16 entries of 4 bytes,
+    // code = ram[3] + ((ram[2] & 3) << 8) + 1024*gfxbank,
+    // color = (ram[2] >> 3) + 32*palettebank.
+    sprite_entry spr[ARK3D_NUM_SPRITES];
+    for (int i = 0; i < ARK3D_NUM_SPRITES; i++)
+    {
+        const uint8_t *s = in->spriteram + 4 * i;
+        sprite_entry *e = &spr[i];
+        memset(e, 0, sizeof(*e));
+        e->slot = i;
+        ark3d_sprite_view_rect(s, &e->x, &e->y);
+        e->code = (uint16_t)((s[3] + ((s[2] & 0x03) << 8) + 1024 * (in->gfxbank & 1)) & (ARK3D_NUM_CHARS / 2 - 1));
+        e->color = (uint8_t)((s[2] >> 3) + 32 * (in->palettebank & 1));
+        e->kind = calibrated_sprite_kind(cal, e->code);
+        // skip what can't be seen: off the view, or a blank graphic
+        e->used = (e->x > -16 && e->x < ARK3D_VIEW_W && e->y < ARK3D_VIEW_H) &&
+                  (g == NULL || g->sprites[e->code].opaque > 0);
+    }
+
+    // Vaus: calibrated sprites, else [heuristic] the lowest row (>= vaus_min_y)
+    // of two or more side-by-side sprites.  Its y never changes in play.
+    int vaus_y = -1, have_cal_vaus = 0;
+    for (int i = 0; i < ARK3D_NUM_SPRITES; i++)
+        if (spr[i].used && (spr[i].kind == ARK3D_KIND_VAUS || spr[i].kind == ARK3D_KIND_VAUS_LASER))
+        {
+            have_cal_vaus = 1;
+            vaus_y = spr[i].y;
+        }
+    if (!have_cal_vaus)
+    {
+        int best_n = 0;
+        for (int i = 0; i < ARK3D_NUM_SPRITES; i++)
+        {
+            if (!spr[i].used || spr[i].kind != ARK3D_KIND_UNKNOWN || spr[i].y < layout.vaus_min_y)
+                continue;
+            int n = 0;
+            for (int j = 0; j < ARK3D_NUM_SPRITES; j++)
+                if (spr[j].used && spr[j].kind == ARK3D_KIND_UNKNOWN && spr[j].y == spr[i].y)
+                    n++;
+            if (n >= 2 && (n > best_n || (n == best_n && spr[i].y > vaus_y)))
+            {
+                best_n = n;
+                vaus_y = spr[i].y;
+            }
+        }
+    }
+    if (vaus_y >= 0)
+    {
+        float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+        for (int i = 0; i < ARK3D_NUM_SPRITES; i++)
+        {
+            sprite_entry *e = &spr[i];
+            int const member = have_cal_vaus
+                ? (e->used && (e->kind == ARK3D_KIND_VAUS || e->kind == ARK3D_KIND_VAUS_LASER))
+                : (e->used && e->kind == ARK3D_KIND_UNKNOWN && e->y == vaus_y);
+            if (!member)
+                continue;
+            float a, b, c, d;
+            sprite_bounds(g, e, &a, &b, &c, &d);
+            if (a < x0) x0 = a;
+            if (b < y0) y0 = b;
+            if (c > x1) x1 = c;
+            if (d > y1) y1 = d;
+            if (e->kind == ARK3D_KIND_VAUS_LASER)
+                st->vaus_laser = 1;
+            e->used = 0;                        // consumed
+        }
+        st->vaus_visible = 1;
+        st->vaus_x = (x0 + x1) * 0.5f;
+        st->vaus_y = (y0 + y1) * 0.5f;
+        st->vaus_w = x1 - x0;
+        st->vaus_h = y1 - y0;
+    }
+
+    // everything else
+    for (int i = 0; i < ARK3D_NUM_SPRITES; i++)
+    {
+        sprite_entry *e = &spr[i];
+        if (!e->used)
+            continue;
+        int kind = e->kind;
+
+        if (kind == ARK3D_KIND_UNKNOWN && g != NULL)
+        {
+            int const opaque = g->sprites[e->code].opaque;
+            int const w = g->sprites[e->code].x1 - g->sprites[e->code].x0 + 1;
+            int const h = g->sprites[e->code].y1 - g->sprites[e->code].y0 + 1;
+            // [heuristic] ball: a small compact blob (about 5x4 px);
+            // laser: thin vertical strokes; big sprites: a capsule (one
+            // 16x8 sprite) or an enemy (two sprites stacked, 16x16)
+            if (opaque <= 24 && w <= 7 && h <= 7 && w >= 2 && h >= 2)
+                kind = ARK3D_KIND_BALL;
+            else if (opaque <= 32 && h >= 5 && opaque * 2 <= w * h)
+                kind = ARK3D_KIND_LASER;
+            else if (opaque >= 40)
+            {
+                kind = ARK3D_KIND_CAPSULE;
+                for (int j = 0; j < ARK3D_NUM_SPRITES; j++)
+                    if (j != i && spr[j].used && spr[j].kind == ARK3D_KIND_UNKNOWN &&
+                        g->sprites[spr[j].code].opaque >= 20 &&
+                        (spr[j].x - e->x <= 2 && e->x - spr[j].x <= 2) &&
+                        (spr[j].y - e->y == 8 || e->y - spr[j].y == 8))
+                        kind = ARK3D_KIND_ENEMY;
+            }
+            else
+                kind = ARK3D_KIND_OTHER;
+        }
+        else if (kind == ARK3D_KIND_UNKNOWN)
+            kind = ARK3D_KIND_OTHER;
+
+        if (kind == ARK3D_KIND_BALL)
+        {
+            if (st->ball_count < ARK3D_MAX_BALLS)
+                set_object(&st->balls[st->ball_count++], g, e, kind);
+            continue;
+        }
+        if (st->object_count >= ARK3D_MAX_OBJECTS)
+            continue;
+        ark3d_object *o = &st->objects[st->object_count++];
+        set_object(o, g, e, kind);
+        if (kind == ARK3D_KIND_CAPSULE)
+        {
+            int const cc = cal ? cal->sprite_capsule[e->code] : ARK3D_CAPSULE_UNKNOWN;
+            o->capsule = (uint8_t)(cc != ARK3D_CAPSULE_UNKNOWN ? cc : nearest_capsule(o->rgb));
+        }
+    }
+
+    // merge stacked enemy halves into one 16x16 object
+    for (int i = 0; i < st->object_count; i++)
+    {
+        ark3d_object *a = &st->objects[i];
+        if (a->kind != ARK3D_KIND_ENEMY)
+            continue;
+        for (int j = i + 1; j < st->object_count; j++)
+        {
+            ark3d_object *b = &st->objects[j];
+            float const dx = a->x - b->x, dy = a->y - b->y;
+            if (b->kind != ARK3D_KIND_ENEMY || dx > 3 || dx < -3 || dy > 12 || dy < -12)
+                continue;
+            float const top = (a->y - a->h / 2 < b->y - b->h / 2) ? a->y - a->h / 2 : b->y - b->h / 2;
+            float const bot = (a->y + a->h / 2 > b->y + b->h / 2) ? a->y + a->h / 2 : b->y + b->h / 2;
+            a->y = (top + bot) * 0.5f;
+            a->h = bot - top;
+            st->objects[j] = st->objects[--st->object_count];
+            break;
+        }
+    }
+
+    // ---- high score: [heuristic] plugins/hiscore/hiscore.dat saves 3 bytes
+    // at c4df for these sets; read as 6 BCD digits, most significant first.
+    if (in->work_ram != NULL && in->work_ram_bytes >= 0x4e2)
+    {
+        const uint8_t *p = in->work_ram + 0x4df;
+        int value = 0, ok = 1;
+        for (int i = 0; i < 3; i++)
+        {
+            int const hi = p[i] >> 4, lo = p[i] & 15;
+            if (hi > 9 || lo > 9)
+                ok = 0;
+            value = value * 100 + hi * 10 + lo;
+        }
+        st->high_score = ok ? value : -1;
+    }
+    return 0;
+}
+
+//------------------------------------------------------------
+//  names
+//------------------------------------------------------------
+
+const char *ark3d_kind_name(int kind)
+{
+    static const char *const names[ARK3D_KIND_COUNT] = {
+        "unknown", "background", "shadow", "wall", "brick", "silver", "gold", "text",
+        "vaus", "vaus_laser", "ball", "capsule", "enemy", "laser", "explosion", "other"
+    };
+    return (kind >= 0 && kind < ARK3D_KIND_COUNT) ? names[kind] : "?";
+}
+
+const char *ark3d_capsule_name(int capsule)
+{
+    static const char *const names[ARK3D_CAPSULE_COUNT] = { "?", "S", "C", "L", "E", "D", "B", "P" };
+    return (capsule >= 0 && capsule < ARK3D_CAPSULE_COUNT) ? names[capsule] : "?";
+}
