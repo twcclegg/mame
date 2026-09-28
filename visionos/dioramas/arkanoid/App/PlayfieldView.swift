@@ -44,13 +44,22 @@ struct PlayfieldView: View {
                 scene.root.scale = SIMD3(repeating: 1.8)
                 scene.root.position = [0, 0.8, -0.9]
             } else {
-                // floor of the volume (the volume's origin is its centre)
-                scene.root.position = [0, -0.18, 0]
+                // A volume opens at about eye height, so a flat table would be
+                // seen edge-on: tilt it toward the viewer like an arcade
+                // board, near end low (the volume's origin is its centre).
+                scene.root.orientation = simd_quatf(angle: Self.volumeTilt, axis: [1, 0, 0])
+                scene.root.position = [0, -0.1, 0.02]
             }
             content.add(scene.root)
             if let hud = attachments.entity(for: "hud") {
-                hud.position = scene.local(Float(ARK3D_VIEW_W) / 2, 0, 0.36)
-                scene.root.addChild(hud)
+                if immersive {
+                    hud.position = scene.local(Float(ARK3D_VIEW_W) / 2, 0, 0.36)
+                    scene.root.addChild(hud)
+                } else {
+                    // upright, above the far end of the tilted table
+                    hud.position = [0, 0.24, -0.3]
+                    content.add(hud)
+                }
             }
             let scene = self.scene
             scene.subscription = content.subscribe(to: SceneEvents.Update.self) { event in
@@ -85,6 +94,9 @@ struct PlayfieldView: View {
 }
 
 extension PlayfieldView {
+    /// How far the table-top view tilts the field toward the viewer.
+    static let volumeTilt: Float = 28 * .pi / 180
+
     /// Development: with DIORAMA_CLOSEUP=1 the arena puts the table close in
     /// front of the viewer, tilted toward them.  DIORAMA_POSE="y z pitch
     /// scale" (metres, degrees) overrides the default "1.4 -0.9 60 0.75".

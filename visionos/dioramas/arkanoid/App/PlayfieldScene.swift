@@ -42,6 +42,11 @@ final class PlayfieldScene {
     private var bricks: [[ModelEntity]] = []
     private var brickShown: [[UInt8]] = []          // kind shown per cell, for break effects
     private var brickColor: [[UInt32]] = []
+    private var brickHome: [[SIMD3<Float>]] = []    // resting position per cell
+    /// Seconds since a brick started dropping in (negative: waiting its turn);
+    /// nil when it's at rest.
+    private var brickDrop: [[Float?]] = []
+    private static let dropTime: Float = 0.35
     private let vaus = VausModel()
     private var vausX: Float = 112
     private var vausWidth: Float = 32
@@ -155,6 +160,8 @@ final class PlayfieldScene {
                 row.append(e)
             }
             bricks.append(row)
+            brickHome.append(row.map(\.position))
+            brickDrop.append([Float?](repeating: nil, count: cols))
             brickShown.append([UInt8](repeating: 0, count: cols))
             brickColor.append([UInt32](repeating: 0, count: cols))
         }
@@ -300,6 +307,7 @@ final class PlayfieldScene {
         outOfPlay = hasState && state.pointee.in_play != 0 ? 0 : outOfPlay + dt
         if outOfPlay > 2.5 { clearBricks() }
         field.isEnabled = true
+        dropBricks(dt: dt)
         animate(dt: dt)
         updateDebris(dt: dt)
     }
@@ -333,6 +341,11 @@ final class PlayfieldScene {
                 if brickShown[r][c] != b.kind || brickColor[r][c] != key {
                     if flashing && brickShown[r][c] == b.kind && breaking {
                         Effects.sparks(in: field, at: e.position + [0, Self.brickHeight / 2, 0], color: .white, count: 12, scale: 0.6)
+                    }
+                    // a new layout (round start, or redrawn after a wipe) drops
+                    // in row by row, far rows first
+                    if brickShown[r][c] == 0 && !breaking {
+                        brickDrop[r][c] = -(Float(r) * 0.03 + Float(c) * 0.008)
                     }
                     e.model?.materials = [material(rgb: b.rgb, kind: kind)]
                     brickColor[r][c] = key
@@ -392,11 +405,33 @@ final class PlayfieldScene {
         return nil
     }
 
+    private func dropBricks(dt: Float) {
+        for r in 0..<brickDrop.count {
+            for c in 0..<brickDrop[r].count {
+                guard var t = brickDrop[r][c] else { continue }
+                t += dt
+                let e = bricks[r][c]
+                if t >= Self.dropTime {
+                    brickDrop[r][c] = nil
+                    e.position = brickHome[r][c]
+                    e.scale = .one
+                    continue
+                }
+                brickDrop[r][c] = t
+                // fall from above with a little squash on landing
+                let k = max(0, t) / Self.dropTime
+                e.position = brickHome[r][c] + [0, (1 - k) * (1 - k) * 0.08, 0]
+                e.scale = t < 0 ? SIMD3(repeating: 0.001) : [1, 0.85 + 0.15 * k, 1]
+            }
+        }
+    }
+
     private func clearBricks() {
         for r in 0..<bricks.count {
             for c in 0..<bricks[r].count where brickShown[r][c] != 0 {
                 bricks[r][c].isEnabled = false
                 brickShown[r][c] = 0
+                brickDrop[r][c] = nil
             }
         }
         lastInPlay = false

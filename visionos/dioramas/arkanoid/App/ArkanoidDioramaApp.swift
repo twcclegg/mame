@@ -11,13 +11,14 @@ import SwiftUI
 
 @main
 struct ArkanoidDioramaApp: App {
+    static let controlsID = "controls"
     static let volumeID = "playfield"
     static let arenaID = "arena"
 
     @State private var model = ArkModel.shared
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.controlsID) {
             ControlPanel()
         }
         .defaultSize(width: 560, height: 640)
@@ -28,7 +29,14 @@ struct ArkanoidDioramaApp: App {
                 .onDisappear { model.volumeOpen = false }
         }
         .windowStyle(.volumetric)
-        .defaultSize(width: 0.7, height: 0.5, depth: 0.75, in: .meters)
+        .defaultSize(width: 0.7, height: 0.6, depth: 0.75, in: .meters)
+        // next to the control window rather than on top of it
+        .defaultWindowPlacement { _, context in
+            if let controls = context.windows.first(where: { $0.id == Self.controlsID }) {
+                return WindowPlacement(.trailing(controls))
+            }
+            return WindowPlacement()
+        }
 
         ImmersiveSpace(id: Self.arenaID) {
             PlayfieldView(immersive: true)
