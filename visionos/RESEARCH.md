@@ -312,6 +312,29 @@ documents how to rebuild the game's camera (vertical FOV = 2·atan((screen_h/2)/
 4. **App shell:** is SDL (quick, UIKit, Shared Space window only) fine as a stepping stone, or should we go straight to a SwiftUI shell with a native OSD?
 5. ~~**Hardware:**~~ answered: **M2**. Budget accordingly. Interpreted classic systems will be fine. With the C DRC backend, heavy recompiler-era systems (Model 3, Naomi, Saturn, N64, Seattle/Vegas) will likely fall short of full speed, and the frame budget also has to cover rendering at visionOS's 90 Hz compositor rate.
 
+## 10. Handoff: open items from the research session (2026-09-28)
+
+These are loose ends from the cloud research session, which had no Mac. The
+Mac-side status lives in README.md.
+
+**Checks for a person with the headset (no build needed):**
+- Does MAME4iOS's App Store build (probably "ArcadeMania") install on Vision Pro as an iPad app? If so, it's a zero-build baseline for speed and controls without JIT. See §1a.
+- Retrocade (Apple Arcade): note how its CRT effect, screen scale and legibility, and controls feel. It's the design bar for a cabinet mode (§1b).
+
+**Written but not yet exercised at runtime:**
+- Pause on background, the NVRAM flush and never undoing a user pause (`MYOSD_PAUSE`, MAMEVision `scenePhase`). To test: close the window mid-game and reopen; take the headset off.
+- `MYOSD_ZOOM_TO_SCREEN` in theater mode. Check with a game that has bezel artwork.
+- **Sega Model 1 geometry export** (`src/emu/geomexport.h`, `model1_v.cpp`, `geometry_frame`). It needs a Model 1 ROM (e.g. Virtua Racing) and a host that sets `wantsGeometry`. `MYOSD_SUPPRESS_NATIVE_3D` should leave only the HUD in the frame.
+- SDL3 build: Select+Start opening the MAME menu (`visionos/ctrlr/visionos.cfg`). MAMEVision's own combos: Select+Start = menu, Select+L1 = ESC, Select+R1 = pause.
+
+**Next decisions and steps:**
+- A host renderer for exported geometry. Options are in §7a: a ShaderGraph material with colour in UV, colour-grouped mesh parts, or Compositor Services.
+- Model 2 geometry export: it also needs a texture export.
+- `claude/arkanoid-3d-visionos` was merged with this branch at `9501bc5a` (the libmame API conflicts were resolved by keeping both sides). Keep merging this branch into it as libmame changes. It's meant to move to its own repository eventually; the GitHub integration here can't create repositories, so create an empty one and any session can push there.
+- Cloud sessions can't type-check Swift. Adding `download.swift.org` to the environment's allowed domains would let them check the libmame C interop (not SwiftUI/UIKit).
+
+**Known and harmless:** the files imported from ToddLa in `src/osd/ios/` use Clang-only extensions (`_Static_assert` in C++, `offsetof` with a runtime index). GCC rejects them, but only Apple Clang ever compiles that OSD.
+
 ## References
 - RetroArch App Store listing: https://apps.apple.com/us/app/retroarch/id6499539433
 - Provenance: https://github.com/Provenance-Emu/Provenance
