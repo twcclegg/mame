@@ -4,8 +4,8 @@
 # End-to-end plumbing test: real MAME + ark3d_capture.lua + ark3d_dump, with
 # placeholder ROM files (no real ROM needed or used).
 #
-#   make -C visionos/arkanoid3d/Tests synth dump
-#   visionos/arkanoid3d/Tests/run_e2e.sh [path/to/mame]
+#   make -C visionos/dioramas/arkanoid/Tests synth dump
+#   visionos/dioramas/arkanoid/Tests/run_e2e.sh [path/to/mame]
 #
 # MAME must include the arkanoid driver, e.g. a Linux build made with
 #   make SOURCES=src/mame/taito/arkanoid.cpp
@@ -18,7 +18,7 @@
 
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-MAME="${1:-$HERE/../../../mame}"
+MAME="${1:-$HERE/../../../../mame}"
 OUT="${OUT:-$HERE/build}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

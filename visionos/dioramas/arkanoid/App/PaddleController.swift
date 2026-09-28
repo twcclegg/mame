@@ -11,7 +11,7 @@
 // too (as target velocity).
 //
 // Measured on the real game (a Lua bot driving the same loop through the
-// same analog override, visionos/arkanoid3d/lua/ark3d_bot.lua): about +1 px
+// same analog override, visionos/dioramas/arkanoid/lua/ark3d_bot.lua): about +1 px
 // per count, positive to the right.  The magnitude is still learned while
 // playing (px/count over a window of frames); the sign is not, because a
 // window with a wrong sign (e.g. the Vaus being re-centred for a new life)

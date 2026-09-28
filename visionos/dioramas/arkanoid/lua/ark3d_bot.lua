@@ -3,8 +3,8 @@
 -- ark3d_bot.lua - plays arkanoid unattended, for capturing real gameplay
 -- (with ark3d_capture.lua) and for checking the paddle control loop:
 --
---   ARK3D_CAPTURE=visionos/arkanoid3d/lua/ark3d_capture.lua ARK3D_OUT=cap.bin ARK3D_FRAMES=20000 \
---     mame arkanoid -video none -sound none -nothrottle -autoboot_script visionos/arkanoid3d/lua/ark3d_bot.lua
+--   ARK3D_CAPTURE=visionos/dioramas/arkanoid/lua/ark3d_capture.lua ARK3D_OUT=cap.bin ARK3D_FRAMES=20000 \
+--     mame arkanoid -video none -sound none -nothrottle -autoboot_script visionos/dioramas/arkanoid/lua/ark3d_bot.lua
 --
 -- It inserts a coin and starts a game whenever no Vaus is on screen, fires
 -- every 20 frames (launch / laser), and steers the Vaus under the ball, aiming

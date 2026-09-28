@@ -167,7 +167,7 @@ static void fill(uint8_t *table, int first, int last, int value)
 }
 
 // [game] all graphics bank 0 (the game itself); read off captures of
-// arkanoid (World) with visionos/arkanoid3d/lua/ark3d_capture.lua and the
+// arkanoid (World) with visionos/dioramas/arkanoid/lua/ark3d_capture.lua and the
 // ROM's own graphics.  See ARKANOID_STATE.md, "Verified codes".
 void ark3d_default_calibration(ark3d_calibration *cal)
 {

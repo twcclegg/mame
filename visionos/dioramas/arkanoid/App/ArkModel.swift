@@ -1,6 +1,6 @@
 // license:BSD-3-Clause
 //
-// ArkModel - UI state for Arkanoid 3D: which ROM sets are present, whether
+// ArkModel - UI state for Arkanoid Diorama: which ROM sets are present, whether
 // MAME is running, the presentation options.
 
 import Foundation

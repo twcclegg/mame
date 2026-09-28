@@ -17,7 +17,7 @@ import Foundation
 import os
 import libmame
 
-private let log = Logger(subsystem: "org.mamedev.arkanoid3d", category: "state")
+private let log = Logger(subsystem: "org.mamedev.diorama.arkanoid", category: "state")
 
 /// Latest decoded frame, handed from the MAME thread to RealityKit.
 final class GameStateStore: @unchecked Sendable {
@@ -199,7 +199,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
     // MARK: - calibration
 
     /// The verified code tables (ark3d_default_calibration), plus optional
-    /// overrides from Documents/arkanoid3d.json, e.g.
+    /// overrides from Documents/arkanoid-diorama.json, e.g.
     ///   { "tiles":    { "0x1a0": "gold", "0x1a1": "gold", "0x1c0": "silver" },
     ///     "sprites":  { "0x010": "vaus", "0x011": "vaus", "0x020": "ball" },
     ///     "capsules": { "0x040": "L" },
@@ -209,7 +209,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
     private func loadCalibration() {
         ark3d_default_calibration(calibration)
         ark3d_default_layout(&layout)
-        let url = MAMEEngine.prepareDocuments().appendingPathComponent("arkanoid3d.json")
+        let url = MAMEEngine.prepareDocuments().appendingPathComponent("arkanoid-diorama.json")
         guard let data = try? Data(contentsOf: url),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
 

@@ -3,9 +3,9 @@
 -- ark3d_capture.lua - record the state the visionOS 3D Arkanoid app reads,
 -- from a real arkanoid run in MAME, for checking the decoder offline:
 --
---   mame arkanoid -autoboot_script visionos/arkanoid3d/lua/ark3d_capture.lua
---   make -C visionos/arkanoid3d/Tests dump
---   visionos/arkanoid3d/Tests/build/ark3d_dump ark3d_capture.bin [-f N | --codes]
+--   mame arkanoid -autoboot_script visionos/dioramas/arkanoid/lua/ark3d_capture.lua
+--   make -C visionos/dioramas/arkanoid/Tests dump
+--   visionos/dioramas/arkanoid/Tests/build/ark3d_dump ark3d_capture.bin [-f N | --codes]
 --
 -- It reads exactly what the app reads through libmame (myosd_* in
 -- src/osd/ios/libmame.h), in the same order: the gfx1 and proms regions once,

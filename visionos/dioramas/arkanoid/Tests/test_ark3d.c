@@ -2,7 +2,7 @@
 //
 // test_ark3d - unit tests for the Arkanoid state decoder over synthetic
 // video RAM, sprite RAM, graphics and palette data.  Builds and runs on any
-// host with a C11 compiler:  make -C visionos/arkanoid3d/Tests
+// host with a C11 compiler:  make -C visionos/dioramas/arkanoid/Tests
 //
 // The synthetic graphics are *not* Arkanoid's: they're shaped to exercise
 // the decoder's hardware formulas (tile/sprite addressing, ROT90 mapping,

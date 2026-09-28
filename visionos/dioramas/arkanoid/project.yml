@@ -1,14 +1,14 @@
-# XcodeGen spec for Arkanoid 3D (https://github.com/yonaskolb/XcodeGen).
+# XcodeGen spec for Arkanoid Diorama (https://github.com/yonaskolb/XcodeGen).
 #
 #   brew install xcodegen
 #   visionos/make-libmame.sh sim SOURCES=src/mame/taito/arkanoid.cpp   # -> build/libmame/libmame.xcframework
-#   cd visionos/arkanoid3d && xcodegen && open Arkanoid3D.xcodeproj
+#   cd visionos/dioramas/arkanoid && xcodegen && open ArkanoidDiorama.xcodeproj
 #
 # Links the same libmame.xcframework as MAMEVision (visionos/app) and shares
 # its engine, controller input, 2D screen and shaders; see README.md.
 # Set DEVELOPMENT_TEAM (or pick a team in Xcode) for device builds.
 
-name: Arkanoid3D
+name: ArkanoidDiorama
 options:
   bundleIdPrefix: org.mamedev
   deploymentTarget:
@@ -18,20 +18,21 @@ settings:
     DEVELOPMENT_TEAM: ""
     SWIFT_VERSION: "5.0"
 targets:
-  Arkanoid3D:
+  ArkanoidDiorama:
     type: application
     platform: visionOS
     sources:
       - path: App
       - path: Decoder
       # shared with MAMEVision, unchanged in behaviour
-      - path: ../app/Sources/MAMEEngine.swift
-      - path: ../app/Sources/GameControllerInput.swift
-      - path: ../app/Sources/AppModel.swift          # ScreenEffect, PresentParams, PresentSettings
-      - path: ../app/Sources/TheaterView.swift       # ScreenUpdater (the 2D screen in RealityKit)
-      - path: ../app/Sources/Shaders.metal
+      - path: ../../app/Sources/MAMEEngine.swift
+      - path: ../../app/Sources/GeometryStore.swift   # MAMEEngine's optional geometry export
+      - path: ../../app/Sources/GameControllerInput.swift
+      - path: ../../app/Sources/AppModel.swift          # ScreenEffect, PresentParams, PresentSettings
+      - path: ../../app/Sources/TheaterView.swift       # ScreenUpdater (the 2D screen in RealityKit)
+      - path: ../../app/Sources/Shaders.metal
     dependencies:
-      - framework: ../../build/libmame/libmame.xcframework
+      - framework: ../../../build/libmame/libmame.xcframework
         embed: false
       - sdk: libc++.tbd
       - sdk: UIKit.framework
@@ -43,8 +44,8 @@ targets:
       - sdk: ARKit.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.mamedev.arkanoid3d
-        SWIFT_OBJC_BRIDGING_HEADER: App/Arkanoid3D-Bridging-Header.h
+        PRODUCT_BUNDLE_IDENTIFIER: org.mamedev.diorama.arkanoid
+        SWIFT_OBJC_BRIDGING_HEADER: App/ArkanoidDiorama-Bridging-Header.h
         HEADER_SEARCH_PATHS: ["$(SRCROOT)/Decoder"]
         GCC_C_LANGUAGE_STANDARD: c11
         # libmame contains Objective-C++ (the clipboard helper)
@@ -52,7 +53,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Arkanoid 3D
+        CFBundleDisplayName: Arkanoid Diorama
         UIApplicationSupportsIndirectInputEvents: true
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

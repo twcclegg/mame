@@ -74,9 +74,9 @@ final class MAMEEngine: @unchecked Sendable {
     var wantsGeometry = false
 
     // Optional hooks for hosts that look at the running machine (the
-    // Arkanoid 3D app).  Set them before start(); they're called on the MAME
-    // thread.  Left nil (MAMEVision), the matching libmame callbacks aren't
-    // installed at all.
+    // dioramas, e.g. visionos/dioramas/arkanoid).  Set them before start();
+    // they're called on the MAME thread.  Left nil (MAMEVision), the matching
+    // libmame callbacks aren't installed at all.
     /// libmame game_init: a game (not MAME's own menu) is starting.
     var onGameInit: ((myosd_game_info) -> Void)?
     /// libmame game_exit.

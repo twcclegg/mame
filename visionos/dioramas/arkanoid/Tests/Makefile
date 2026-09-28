@@ -1,8 +1,8 @@
 # license:BSD-3-Clause
 #
 # Linux/macOS host tests for the Arkanoid state decoder.
-#   make -C visionos/arkanoid3d/Tests          # build and run the unit tests
-#   make -C visionos/arkanoid3d/Tests dump     # build the capture decoder tool
+#   make -C visionos/dioramas/arkanoid/Tests          # build and run the unit tests
+#   make -C visionos/dioramas/arkanoid/Tests dump     # build the capture decoder tool
 #   ./run_e2e.sh /path/to/mame                 # plumbing test through a real MAME build
 
 CC ?= cc

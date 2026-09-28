@@ -26,21 +26,21 @@ struct ControlPanel: View {
                     }
                     Button(model.running ? "Running" : "Start", systemImage: "play.fill") {
                         model.launch()
-                        if !model.volumeOpen { openWindow(id: Arkanoid3DApp.volumeID) }
+                        if !model.volumeOpen { openWindow(id: ArkanoidDioramaApp.volumeID) }
                     }
                     .disabled(model.running || model.sets.isEmpty)
                 }
 
                 Section("View") {
                     Button(model.volumeOpen ? "Close table-top" : "Table-top", systemImage: "cube") {
-                        if model.volumeOpen { dismissWindow(id: Arkanoid3DApp.volumeID) } else { openWindow(id: Arkanoid3DApp.volumeID) }
+                        if model.volumeOpen { dismissWindow(id: ArkanoidDioramaApp.volumeID) } else { openWindow(id: ArkanoidDioramaApp.volumeID) }
                     }
                     Button(model.arenaOpen ? "Leave arena" : "Arena (immersive)", systemImage: "visionpro") {
                         Task {
                             if model.arenaOpen {
                                 await dismissImmersiveSpace()
                                 model.arenaOpen = false
-                            } else if case .opened = await openImmersiveSpace(id: Arkanoid3DApp.arenaID) {
+                            } else if case .opened = await openImmersiveSpace(id: ArkanoidDioramaApp.arenaID) {
                                 model.arenaOpen = true
                             }
                         }
@@ -59,7 +59,7 @@ struct ControlPanel: View {
                     Text("Controller: stick or d-pad moves the Vaus, A fires / launches, Select inserts a coin, Start starts. Select+Start opens MAME's menu. Pinch & drag: look at the field, pinch and move sideways. Hand: follows your right index finger (arena only).")
                 }
             }
-            .navigationTitle("Arkanoid 3D")
+            .navigationTitle("Arkanoid Diorama")
             .toolbar {
                 Button("Refresh", systemImage: "arrow.clockwise") { model.refresh() }
             }
@@ -71,7 +71,7 @@ struct ControlPanel: View {
             if let first = args.first, !model.running {
                 model.selected = first
                 model.launch(extraArguments: Array(args.dropFirst()))
-                openWindow(id: Arkanoid3DApp.volumeID)
+                openWindow(id: ArkanoidDioramaApp.volumeID)
             }
         }
     }

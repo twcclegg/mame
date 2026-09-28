@@ -1,4 +1,7 @@
-# Arkanoid 3D (visionOS, experimental)
+# Arkanoid Diorama (visionOS, experimental)
+
+The first **diorama**: a per-game renderer that reads a running game's state
+out of MAME every frame and draws its own 3D scene from it.
 
 This is the **original arcade Arkanoid**, emulated exactly by MAME
 (`src/mame/taito/arkanoid.cpp`), but shown as a 3D scene in RealityKit. It is
@@ -32,7 +35,7 @@ video_draw_pixels ──► FrameStore ─────────────�
 |---|---|
 | `Decoder/ark3d.{h,c}` | Portable C11 decoder. Raw videoram and spriteram bytes (plus the gfx and palette ROM regions) go in; a typed state comes out: brick grid, Vaus x/width, balls, capsules (S/C/L/E/D/B/P), enemies, lasers, high score. |
 | `ARKANOID_STATE.md` | The memory layout, with file:line references into MAME, and a note of which parts are exact and which are heuristics. |
-| `Tests/` | `make -C visionos/arkanoid3d/Tests` runs the unit tests over synthetic buffers on Linux or macOS. `run_e2e.sh` runs a plumbing test through a real MAME build. `ark3d_dump` decodes captures. |
+| `Tests/` | `make -C visionos/dioramas/arkanoid/Tests` runs the unit tests over synthetic buffers on Linux or macOS. `run_e2e.sh` runs a plumbing test through a real MAME build. `ark3d_dump` decodes captures. |
 | `lua/ark3d_capture.lua` | MAME Lua script. It records, every frame, exactly what the app reads, so the decoder can be checked offline against a real ROM. |
 | `App/` | The SwiftUI and RealityKit app: control window, volumetric table-top, immersive "arena". |
 | `project.yml` | XcodeGen project. It links the same `libmame.xcframework` as MAMEVision and reuses its `MAMEEngine`, `GameControllerInput`, `ScreenUpdater` and `Shaders.metal`. |
@@ -61,18 +64,18 @@ and Python 3.
 visionos/make-libmame.sh sim SOURCES=src/mame/taito/arkanoid.cpp
 
 # 2. the app
-cd visionos/arkanoid3d
+cd visionos/dioramas/arkanoid
 xcodegen
-open Arkanoid3D.xcodeproj        # run the Arkanoid3D scheme on the visionOS simulator / device
+open ArkanoidDiorama.xcodeproj        # run the ArkanoidDiorama scheme on the visionOS simulator / device
 ```
 
 Copy your ROM set (for example `arkanoid.zip`) into the app's **Documents/roms**
 folder, using the Files app on the device or Finder file sharing. For the
 simulator, use the app container's Documents folder
-(`xcrun simctl get_app_container booted org.mamedev.arkanoid3d data`). Clones
+(`xcrun simctl get_app_container booted org.mamedev.diorama.arkanoid data`). Clones
 such as `arkanoidj` also need the parent `arkanoid.zip`. Then press **Start** in
 the control window, and the table-top volume opens. A launch argument starts a
-set directly, for example `xcrun simctl launch booted org.mamedev.arkanoid3d arkanoid`.
+set directly, for example `xcrun simctl launch booted org.mamedev.diorama.arkanoid arkanoid`.
 
 ### Controls
 
@@ -96,9 +99,9 @@ fight.
 ## Testing without a Mac or a ROM
 
 ```sh
-make -C visionos/arkanoid3d/Tests test synth dump     # unit tests: 88 checks
+make -C visionos/dioramas/arkanoid/Tests test synth dump     # unit tests: 88 checks
 make SOURCES=src/mame/taito/arkanoid.cpp -j8          # headless-capable Linux MAME, Arkanoid only
-visionos/arkanoid3d/Tests/run_e2e.sh ./mame           # plumbing test through that MAME
+visionos/dioramas/arkanoid/Tests/run_e2e.sh ./mame           # plumbing test through that MAME
 ```
 
 `run_e2e.sh` writes **placeholder** ROM files: zeros for the program, and
@@ -108,90 +111,76 @@ Lua script injects a synthetic playfield into the real `:videoram` and
 proves the names, the format and the decoder path. It says nothing about the
 real game, whose program never runs.
 
-## Validating with a real ROM (to do)
+## Checking against the real game
+
+The decoder's code tables (`ark3d_default_calibration`) were read off real
+gameplay; `ARKANOID_STATE.md` §10 lists them. To capture more (for example
+later rounds, gold bricks, DOH) with any desktop MAME:
 
 ```sh
-ARK3D_OUT=cap.bin ./mame arkanoid -autoboot_script visionos/arkanoid3d/lua/ark3d_capture.lua
-# play a few rounds (collect capsules, lose a life, reach round 2), then quit
-make -C visionos/arkanoid3d/Tests dump
-visionos/arkanoid3d/Tests/build/ark3d_dump cap.bin | less        # one line per frame
-visionos/arkanoid3d/Tests/build/ark3d_dump cap.bin -f 1500       # grid + tilemap codes + objects
-visionos/arkanoid3d/Tests/build/ark3d_dump cap.bin --codes       # which codes were seen as what
+# unattended: the bot inserts coins, plays badly, and steers like the app does
+ARK3D_CAPTURE=visionos/dioramas/arkanoid/lua/ark3d_capture.lua ARK3D_OUT=cap.bin ARK3D_FRAMES=20000 \
+  ./mame arkanoid -video none -sound none -nothrottle \
+  -autoboot_script visionos/dioramas/arkanoid/lua/ark3d_bot.lua
+# or play it yourself
+ARK3D_OUT=cap.bin ./mame arkanoid -autoboot_script visionos/dioramas/arkanoid/lua/ark3d_capture.lua
+
+make -C visionos/dioramas/arkanoid/Tests dump
+visionos/dioramas/arkanoid/Tests/build/ark3d_dump cap.bin | less        # one line per frame
+visionos/dioramas/arkanoid/Tests/build/ark3d_dump cap.bin -f 1500       # grid + tilemap codes + objects
+visionos/dioramas/arkanoid/Tests/build/ark3d_dump cap.bin --codes       # which codes were decoded as what
 ```
 
-Check these, in order:
+Codes that show up as `other` in `--codes` aren't in the tables yet. Captures
+contain the ROM's graphics, so keep them out of the repository.
 
-1. **Layout.** In `-f` output, round 1's bricks should fill whole cells of the
-   13-wide grid, the walls should sit at view columns 0 and 27, and the text
-   should sit in rows 0–1. If they're off, set `layout` in the calibration file.
-2. **Vaus and balls.** The Vaus x should track the paddle, and its width should
-   grow with an E capsule. Balls should show up.
-3. **Capsules.** Each letter should be recognised by its colour.
-4. **Silver, gold, text and shadows.** Find their codes in `--codes` and the
-   tilemap dump.
-
-Put what you find in `Documents/arkanoid3d.json`. `GameState.swift` loads it
-when a game starts:
+`Documents/arkanoid-diorama.json` can add to or override the tables on a
+device without rebuilding; `GameState.swift` loads it when a game starts:
 
 ```json
 {
-  "tiles":    { "0x1a0": "gold", "0x1a1": "gold", "0x1c0": "silver", "0x0b0": "text" },
-  "sprites":  { "0x010": "vaus", "0x018": "vaus_laser", "0x020": "ball" },
-  "capsules": { "0x040": "L" },
-  "layout":   { "grid_top": 32, "grid_rows": 18 }
+  "tiles":    { "0x17a": "gold", "0x17b": "gold" },
+  "sprites":  { "0x1bb": "laser" },
+  "capsules": { "0x1b0": "P" },
+  "layout":   { "grid_rows": 18 }
 }
 ```
 
 Codes include the graphics bank: add 0x800 for tiles and 0x400 for sprites
-when `gfxbank` is 1. Once the tables are known they should become the
-decoder's defaults.
+when `gfxbank` is 1.
 
 ## What's verified and what isn't
 
-**Verified (in the Linux container this was written in):**
-- The libmame C++ additions pass a syntax check with clang 18 using the OSD's
-  flags. GENie still generates the `OSD=ios`, `targetos=visionos` project,
-  and it now includes `state.cpp`.
-- The decoder is warning-free under gcc and clang with `-Werror -Wconversion`,
-  and passes 88 unit checks over synthetic data.
-- The capture script, share, region and save-item names, capture format and
-  decoder were run end to end through a real MAME build of this tree (Linux,
-  Arkanoid driver only) with placeholder ROMs.
+**Verified (on a Mac, with the real `arkanoid` ROM set):**
+- libmame, with the machine-state API, builds for the visionOS simulator, and
+  the app builds with Xcode 27 and runs on the visionOS 26.5 simulator: MAME
+  boots the game, the decoder runs on every frame, and the table-top volume
+  and the original 2D screen come up.
+- The decoder against about 36,000 frames of rounds 1 and 2 (ARKANOID_STATE.md
+  §9–10): bricks, silver, background and shadows, walls, the Vaus in all its
+  forms, ball, capsule letters, enemies, laser shots, player and high score.
+- The paddle loop, driven by `lua/ark3d_bot.lua` through the same analog
+  override: about +1 px per count, stable over whole games.
+- 105 unit checks over synthetic data, `-Werror -Wconversion`.
 
 **Not verified:**
-- **The Swift, RealityKit and ARKit code has never been compiled.** No Mac
-  and no Swift toolchain were available. The APIs are written from Apple's
-  documentation for visionOS 2: `PointLightComponent`,
-  `PhysicallyBasedMaterial.clearcoat`, `DragGesture.targetedToEntity`,
-  `HandTrackingProvider`. Expect some compile fixes.
-- **The libmame additions haven't been linked or run.** They were only
-  syntax-checked, and `ios` OSD builds need a Mac. The same MAME calls do work
-  from Lua in the e2e test.
-- **Everything marked [game] in ARKANOID_STATE.md.** That covers the playfield
-  offsets, how bricks, the Vaus, balls, capsules, enemies and lasers are
-  recognised, and the high score address. These are educated heuristics built
-  on the ROM's own graphics, and none has been checked against the real game.
-- **The paddle loop's tuning.** It uses step limits and learns the
-  pixels-per-count ratio, and the first time the override takes over, the
-  Vaus might jump.
-- Performance: decoding is cheap, well under a millisecond per frame by
-  design, but it hasn't been measured on device. Frame pacing between 60 Hz
-  emulation and 90 Hz rendering relies on easing and hasn't been checked for
-  judder.
+- Gold bricks, rounds 3–33, DOH, the Disruption (3-ball) state and the B
+  warp: not reached by the bot yet. Unknown codes fall back to the heuristics.
+- Hand tracking and the immersive arena: the simulator has no hands, and
+  nothing here can press buttons in it, so they've only been compiled.
+- Performance and frame pacing on a device.
 
 ## Next steps
 
-- Run a capture with a real ROM and fix the layout and heuristics. Then make
-  the verified code tables the defaults, and add a real-ROM regression capture
-  (kept locally, never committed) for `ark3d_dump`.
-- Show the current score and lives: find them in work RAM from a capture, or
-  read the digit tiles.
+- Reach later rounds for captures: a better bot, or a debug start-round
+  override (find the round number in work RAM).
+- Find the lives counter in work RAM (the score is at `c4d7`, see
+  ARKANOID_STATE.md §8).
 - More effects from diffing states: a flash and a sound-synced particle burst
   when silver bricks are hit (their tiles animate), a shockwave on the
   Disruption split, a glow trail on the ball, and the warp gate on the right
   wall ("B" capsule).
-- Gold and silver brick shimmer; DOH (round 33, drawn in the tilemap) as a big
-  3D model.
+- DOH (round 33, drawn in the tilemap) as a big 3D model.
 - Use the ROM's own graphics as textures, for example capsule letters and
   enemy sprites as decals. `ark3d_char_pen` plus the palette already decode
   them.

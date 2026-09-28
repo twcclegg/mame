@@ -1,6 +1,6 @@
 // license:BSD-3-Clause
 //
-// Arkanoid 3D - the original arcade Arkanoid, emulated by MAME (libmame,
+// Arkanoid Diorama - the original arcade Arkanoid, emulated by MAME (libmame,
 // taito/arkanoid.cpp), presented as a RealityKit scene.  MAME runs the real
 // game; every emulated frame its video RAM is decoded (Decoder/ark3d.c) and
 // drives 3D bricks, Vaus, balls, capsules and enemies.  Sound is MAME's.
@@ -10,7 +10,7 @@
 import SwiftUI
 
 @main
-struct Arkanoid3DApp: App {
+struct ArkanoidDioramaApp: App {
     static let volumeID = "playfield"
     static let arenaID = "arena"
 
