@@ -4,11 +4,11 @@ Experimental visionOS port. It uses the `sdl3` OSD and presents MAME as a flat
 window in the Shared Space. Background and the longer-term plan are in
 [RESEARCH.md](RESEARCH.md).
 
-**Status (2026-09-27): it runs.** `MAME-sim.app` launches in the visionOS 26.5
-Simulator and renders MAME's system-selection UI — a real Metal-backed window
-floating in the Shared Space, gamepad detected, audio/keyboard/mouse all
-initialized. Getting here took two fixes beyond the original build-only
-milestone:
+**Status (2026-09-27): it plays a real game.** Arkanoid (World v1.0, fully
+byte-verified romset) boots and runs in the visionOS 26.5 Simulator — title
+screen, actual Level 1 gameplay, YM2149 sound, all rendering correctly as a
+Metal-backed window in the Shared Space. Getting from "compiles" to "plays"
+took two runtime fixes beyond the original build-only milestone:
 
 1. **Use SDL ≥ 3.4.0, not `release-3.2.x`.** The 3.2.x branch has zero UIScene
    support in its UIKit backend. visionOS *requires* scene-lifecycle adoption
@@ -23,8 +23,16 @@ milestone:
    below. This is a real, platform-agnostic MAME bug the visionOS port just
    happened to be the first to hit hard.
 
-Still open: device (hardware) launch is untested — everything below "still
-open" in **Things to verify** hasn't been exercised yet.
+Also new: `visionos/ini/mame.ini` now defaults spinner/paddle/trackball
+controls (`IPT_DIAL`/`IPT_PADDLE`/`IPT_TRACKBALL` — Arkanoid's paddle is a
+dial) to the gaze pointer, since visionOS exposes gaze+pinch to windowed apps
+as ordinary mouse motion. Not yet confirmed hands-on — this build machine has
+no way to synthesize pointer input to test it programmatically.
+
+Still open: device (hardware) launch is untested, `-video bgfx` specifically
+hasn't been run on visionOS (though the underlying code path works, see
+below), and gaze-as-paddle-input needs a person to actually try it — see
+"Things confirmed vs. still open" below.
 
 Target hardware: Apple Vision Pro (M2). There's no JIT on visionOS, so the build
 always uses the C DRC backend (`NOASM=1`).
@@ -117,10 +125,18 @@ cd visionos/app && xcodegen && open MAMEVision.xcodeproj
   - `FrameView`: MTKView presenter with a 4-texture ring, aspect-fit by the game's intended aspect.
   - `GameControllerInput`: GCExtendedGamepad to `myosd_input_state`. Select+Start opens the menu, Select+L1 exits (ESC) and Select+R1 pauses.
   - Sound uses libmame's built-in AudioQueue output.
+  - **Lifecycle:** emulation pauses, and NVRAM is flushed, once every MAMEVision scene is in the background (window closed, headset off). It resumes when the app comes back. A pause you made in MAME itself is left alone.
+  - Theater mode frames just the game screen (`MYOSD_ZOOM_TO_SCREEN`), cropping bezel artwork.
+- **For per-game renderers** (see RESEARCH.md §7a):
+  - `MAMEEngine.wantsGeometry` turns on libmame's `geometry_frame` callback. `GeometryStore` then holds each frame's camera-space 3D polygons, for drivers that export them (Sega Model 1 so far, via `src/emu/geomexport.h`).
+  - `setSuppressNative3D(true)` leaves only the game's 2D layers in the video frame, so host-rendered 3D can be composited under the HUD.
 - **Machine state access** (appended to `libmame.h`, backward compatible): a `machine_frame` callback once per emulated frame, `myosd_get_memory_share` / `_region`, `myosd_get_state_item` (a device's save-state variables), `myosd_read_memory` (side-effect-free) and `myosd_set/clear_analog_input`. `myosd_main` now honours `callbacks_size`. The first user is **[arkanoid3d/](arkanoid3d/README.md)**, the original arcade Arkanoid presented as a 3D RealityKit playfield, built from its video RAM each frame.
-- Unverified until a Mac builds it:
-  - The Swift, Metal and RealityKit code has never been compiled. The `LowLevelTexture` / `TextureResource(from:)` calls in particular are written from Apple's docs and WWDC material.
-  - Colours in theater mode: RealityKit may treat the `bgra8Unorm` texture as linear. If it looks washed out or too dark, try `bgra8Unorm_srgb`.
+- **Status (2026-09-28): it builds and runs.** `visionos/make-libmame.sh sim` produces `libmame.xcframework` cleanly, `xcodegen && xcodebuild` builds the SwiftUI host, and on the visionOS 26.5 Simulator it launches, its `ContentView` ROM picker correctly lists ROMs found in Documents/roms, and `arkanoid -skip_gameinfo` boots all the way to the real title screen (rendered through `video_draw_pixels` → the Metal compute shader → `LowLevelTexture`/`UnlitMaterial`), with the Pixels/Sharp/CRT effect picker and Theater toggle visible in the ornament. One real bug found and fixed:
+  - **`ScreenUpdater` (`TheaterView.swift`) needed `@MainActor`.** RealityKit's `LowLevelTexture.replace(using:)` and `.init(descriptor:)` are `@MainActor`-isolated; `ScreenUpdater` wasn't, so Swift's actor-isolation checker rejected the calls at compile time. Marking the class `@MainActor` was sufficient — its only callers (`RealityView`'s content closure and its scene-update subscription) already run on the main actor, and `FrameStore` is separately `@unchecked Sendable`, so this doesn't introduce any cross-thread issue.
+  - **Not a bug, but a gotcha:** a Debug-configuration build uses Xcode's "debug dylib" stub-executor launch mechanism (a tiny stub binary that `dlopen`s the real code from a companion `.debug.dylib`), which needs Xcode's own launch environment to find that dylib. Launching a Debug build directly via bare `xcrun simctl launch` (no Xcode attached) fails with `SIGABRT` in `abort_failed_to_open___debug_dylib`/`getDebugDylibHandle` — looks like an app crash but isn't one. Build `-configuration Release` (or pass `ENABLE_DEBUG_DYLIB=NO`) to launch outside Xcode.
+  - Also: `xcodebuild -destination "generic/platform=visionOS Simulator"` fails to link (`missing architecture(s) ... x86_64`) since `libmame.xcframework` is arm64-only (this machine is Apple Silicon and the Simulator runtime doesn't need an x86_64 slice). Target a concrete device instead: `-destination "platform=visionOS Simulator,id=<udid>"`.
+  - **Theater mode: now confirmed working end-to-end, after fixing a real bug.** Reaching it needs a tap on the "Theater" ornament button, and this build machine can't synthesize touch/pointer input, so it was driven instead via a test-only env var (`MAMEVISION_AUTO_THEATER=1`, gated off by default, see `ContentView.swift`) passed through `simctl launch` as `SIMCTL_CHILD_MAMEVISION_AUTO_THEATER=1`. First attempt failed outright: `project.yml` set `UIApplicationSupportsMultipleScenes: false`, but Theater mode's whole design is a *second* concurrent scene (an `ImmersiveSpace` alongside the main window) — visionOS logged "Unable to open an immersive space when the app does not support multiple scenes" and silently no-opped. Flipped to `true`; after that, `openImmersiveSpace` succeeds and the button correctly flips to "Exit Theater". The system log then shows **two** distinct plane meshes loading: the 4.5×3.375 m 4:3 placeholder from `init()`, then a second 2.53125×3.375 m one at aspect 0.75 — Arkanoid's actual vertical-monitor aspect ratio (MAME's own info screen reports its video as "(V)" for vertical) — meaning `ensureOutput()` ran against a real game frame, not just the placeholder, and rebuilt the screen mesh to the correct aspect. Zero faults in the log throughout.
+  - Still unverified: colours in theater mode — RealityKit may treat the `bgra8Unorm` texture as linear; if it looks washed out or too dark, try `bgra8Unorm_srgb`.
 
 ## What changed for the port
 
@@ -154,25 +170,59 @@ GUI needed:
 - SDL3's GameController backend detects and maps a virtual gamepad
   (`platform:visionOS` in the mapping string) with no extra work.
 - `MAME_NOASM=1` (the forced C DRC backend) is active, per the verbose log.
+- **Real gameplay**: Arkanoid (World v1.0) — a fully byte-verified romset
+  (`-verifyroms` passes clean) — boots past its hardware self-test, shows the
+  Taito title screen, and renders actual Level 1 gameplay (brick layout,
+  paddle, ball) via `-autoboot_script` inserting a coin and starting a game
+  through MAME's Lua console. YM2149 sound initializes without error.
+- **bgfx on Metal**, i.e. `-video bgfx` specifically, on a second Simulator
+  device: initializes on Metal, the UIKit `CAMetalLayer` path in
+  `drawbgfx.cpp` works, and `arkanoid -video bgfx -bgfx_screen_chains
+  crt-geom` renders full gameplay with the crt-geom shadow-mask/glow chain
+  visibly applied. Clean exit via Lua `manager.machine:exit()`, 100% speed,
+  no crash.
+- **visionOS 27.0 runtime instability was a transient install glitch, not a
+  MAME bug.** Root cause: the xrOS 27.0 runtime was still `state=Copying`
+  when first used, got registered twice under two disk-image IDs from the
+  same asset, and `simdiskimaged` then tried to unmount/remount it while a
+  device was using it — `cryptexd` failed with `unmount [16: Resource busy]`,
+  which is exactly what produced the `liblaunch_sim.dylib could not be
+  opened` / `Malformed bundle` errors. A fresh 27.0 device (after the
+  duplicate registration resolved itself) installed and launched
+  `MAME-sim.app` 3 times and survived 2 full shutdown/boot cycles, UI
+  rendering correctly each time. The original broken device from that
+  session (`8CBA0F71`) predates the fix and may still be bad; delete and
+  recreate it rather than debugging it further.
 
 Still open:
-1. **bgfx on Metal**, i.e. `-video bgfx` specifically (as opposed to the
-   default `-video accel`, which goes through `SDL_Renderer`, not bgfx). It
-   compiles for both device and simulator, and a *native macOS* smoke test of
-   the same bgfx/Metal code succeeded (see RESEARCH.md milestone 4), but the
-   visionOS-specific `CAMetalLayer`-from-UIKit branch in `drawbgfx.cpp` hasn't
-   actually been run yet. Try `-video bgfx -bgfx_screen_chains crt-geom`.
-2. **No JIT.** `drc_cache` should log "Using W^X mode" and never actually
-   execute from the cache with `drcbe_c`. Needs an actual driver+ROM to reach
-   that code path (the frontend UI alone doesn't).
-3. **Real gameplay.** Load an actual ROM and confirm input, sound, and the
-   emulation loop run at speed — everything so far is frontend-UI-only.
+1. **A bgfx/Metal shutdown crash on the *early-fatal* path only** (e.g. a
+   missing-ROM abort before the machine starts): `SIGABRT` in
+   `renderer_bgfx::~renderer_bgfx → video_bgfx::last_renderer_destroyed →
+   bgfx::shutdown → Context::shutdown/frame/swap/renderFrame → autorelease
+   pool drain → -[MTLSerializerBlitCommandEncoder dealloc] →
+   MTLReportFailure("Command encoder released without endEncoding")`. Looks
+   like a blit encoder opened for a texture upload (`getBlitCommandEncoder`,
+   `renderer_mtl.mm` ~2451/3575) is still open when bgfx's shutdown frame's
+   autorelease pool drains. Doesn't affect normal gameplay or a normal exit,
+   only this early-abort path (MAME exiting before the machine starts) —
+   low priority, but worth fixing since a bad ROM shouldn't crash the whole
+   app. **Confirmed not visionOS-specific**: reproduces with current
+   upstream bgfx on native macOS under `MTL_DEBUG_LAYER=1` — if a
+   texture/buffer update is still pending when `bgfx::shutdown()` runs,
+   `RendererShutdownBegin` skips the submit, and the `renderFrame`
+   autorelease pool then frees the still-open blit encoder. A fix exists as
+   a draft upstream bgfx PR; MAME vendors bgfx API 118, much older than
+   upstream, so pulling the fix in would be a separate backport.
+2. **No JIT in a driver that actually uses DRC.** Arkanoid's Z80 doesn't use
+   MAME's recompiler at all, so `MAME_NOASM=1` being *set* is confirmed, but
+   `drc_cache` actually logging "Using W^X mode" and never executing from the
+   cache needs a DRC-using driver (MIPS3, PowerPC, SH2/4, ARM7, etc.) plus its
+   ROM.
+3. **Gaze-as-paddle-input.** `visionos/ini/mame.ini` now defaults
+   `dial_device`/`paddle_device`/`trackball_device` to `mouse`, and it boots
+   cleanly with no errors, but nothing on this build machine can synthesize
+   pointer/touch input to confirm gaze motion actually reaches the paddle —
+   `simctl` has no touch/pointer injection, and Accessibility automation to
+   move a real pointer times out. Needs a person physically trying it.
 4. **Device (hardware) launch.** Only the Simulator has been tried. Needs a
    dev-team identity + provisioning profile for `bundle.sh device`.
-5. **visionOS 27.0 runtime instability on this machine.** A freshly-booted
-   `Apple Vision Pro` device on the `visionOS 27.0` runtime failed after one
-   launch attempt (`liblaunch_sim.dylib could not be opened`, `Malformed
-   bundle does not contain an identifier` on the runtime's own `.simruntime`
-   bundle) and needed a fallback to a `visionOS 26.5` device to make any
-   further progress. Unclear whether that's a bad runtime install or a
-   genuine bug; worth another look with a clean runtime install.

@@ -16,12 +16,25 @@ struct MAMEVisionApp: App {
     static let theaterID = "theater"
 
     @State private var immersion: ImmersionStyle = .mixed
+    /// App-wide phase: .background only once every scene (window and theater)
+    /// is gone, e.g. the window was closed or the headset taken off.
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
         .defaultSize(width: 1280, height: 960)
+        .onChange(of: scenePhase) { _, phase in
+            // pause (and flush NVRAM) in the background; resume when back.
+            // .inactive is left alone: in the Shared Space a window can be
+            // inactive while still in view.
+            switch phase {
+            case .background: MAMEEngine.shared.setPaused(true)
+            case .active: MAMEEngine.shared.setPaused(false)
+            default: break
+            }
+        }
 
         // mixed: the screen floats in your room; full: a dark theater
         ImmersiveSpace(id: Self.theaterID) {

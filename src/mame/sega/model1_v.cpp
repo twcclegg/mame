@@ -567,6 +567,49 @@ void model1_state::unsort_quads() const
 }
 
 
+void model1_state::export_quads(emu::geometry_export::sink &sink, const bitmap_rgb32 &bitmap, const view_t &view, int count) const
+{
+	namespace ge = emu::geometry_export;
+
+	// matches view_t::project_point: s = c + (p/z * zoom + view), with y flipped
+	ge::projection proj;
+	proj.center_x = float(view.xc);
+	proj.center_y = float(view.yc);
+	proj.scale_x = view.zoomx;
+	proj.scale_y = view.zoomy;
+	proj.offset_x = view.viewx;
+	proj.offset_y = view.viewy;
+	proj.clip_min_x = view.x1;
+	proj.clip_min_y = view.y1;
+	proj.clip_max_x = view.x2;
+	proj.clip_max_y = view.y2;
+	proj.screen_width = bitmap.width();
+	proj.screen_height = bitmap.height();
+
+	std::vector<ge::polygon> polys;
+	polys.reserve(count);
+	for (int i = 0; i < count; i++)
+	{
+		const quad_t &q = *m_quadind[i];
+		ge::polygon &out = polys.emplace_back();
+		for (int j = 0; j < 4; j++)
+			out.v[j] = ge::vertex{ q.p[j]->x, q.p[j]->y, q.p[j]->z };
+		out.count = 4;
+
+		int const color = (q.col < 0) ? (-1 - q.col) : q.col;
+		out.rgb = uint32_t(color) & 0x00ffffff;
+		out.flags = (color & MOIRE) ? ge::POLY_FLAG_MOIRE : 0;
+		out.sort_z = q.z;
+
+		// wireframes arrive as degenerate A,A,B,B quads (see fill_quad)
+		auto const same = [] (const point_t *a, const point_t *b) { return a->x == b->x && a->y == b->y && a->z == b->z; };
+		if (same(q.p[0], q.p[1]) && same(q.p[2], q.p[3]))
+			out.flags |= ge::POLY_FLAG_WIREFRAME;
+	}
+	sink.polygons(proj, polys.data(), polys.size());
+}
+
+
 void model1_state::draw_quads(bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
 	view_t *view = m_view.get();
@@ -582,7 +625,15 @@ void model1_state::draw_quads(bitmap_rgb32 &bitmap, const rectangle &cliprect)
 	view->y1 = std::max(view->y1, cliprect.min_y);
 	view->y2 = std::min(view->y2, cliprect.max_y);
 
-	for (int i = 0; i < count; i++)
+	// hand the camera-space quads to a host renderer, if one is listening
+	bool skip_native = false;
+	if (emu::geometry_export::sink *const sink = emu::geometry_export::get_sink())
+	{
+		export_quads(*sink, bitmap, *view, count);
+		skip_native = sink->suppress_native_rendering();
+	}
+
+	for (int i = 0; i < count && !skip_native; i++)
 	{
 		fill_quad(bitmap, view, *m_quadind[i]);
 #if 0

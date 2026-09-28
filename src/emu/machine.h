@@ -167,6 +167,7 @@ public:
 	void pause();
 	void resume();
 	void toggle_pause();
+	void nvram_save(); // public so hosts (e.g. the ios OSD's libmame) can flush NVRAM before being suspended
 	void add_notifier(machine_notification event, machine_notify_delegate callback, bool first = false);
 	void call_notifiers(machine_notification which);
 	void add_logerror_callback(logerror_callback callback);
@@ -255,7 +256,6 @@ private:
 	void soft_reset(s32 param = 0);
 	std::string nvram_filename(device_t &device) const;
 	void nvram_load();
-	void nvram_save();
 	void popup_clear() const;
 	void popup_message(util::format_argument_pack<char> const &args) const;
 

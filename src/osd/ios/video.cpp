@@ -37,6 +37,13 @@ void ios_osd_interface::video_init()
     m_min_height = 0;
     m_vis_width = 0;
     m_vis_height = 0;
+
+    // collect exported 3D geometry only if the host wants it
+    if (m_callbacks.geometry_frame != NULL)
+    {
+        m_geometry_sink = std::make_unique<ios_geometry_sink>();
+        emu::geometry_export::set_sink(m_geometry_sink.get());
+    }
 }
 
 //============================================================
@@ -50,6 +57,12 @@ void ios_osd_interface::video_exit()
     // free the render target
     machine().render().target_free(m_target);
     m_target = nullptr;
+
+    if (m_geometry_sink)
+    {
+        emu::geometry_export::set_sink(nullptr);
+        m_geometry_sink.reset();
+    }
     
     if (m_callbacks.video_exit != NULL)
         m_callbacks.video_exit();
@@ -124,12 +137,61 @@ static void convert_prim(myosd_render_primitive &myosd_prim, const render_primit
 }
 
 //============================================================
+//  apply_host_requests - myosd_set requests that must run on
+//  the MAME thread (update() is called every frame, and keeps
+//  being called while the machine is paused)
+//============================================================
+
+void ios_osd_interface::apply_host_requests()
+{
+    int const pause = myosd_pause_request.exchange(-1);
+    if (pause == 1 && !myosd_host_paused)
+    {
+        // only take ownership of the pause if the machine wasn't already paused
+        // (by the user, or a MAME menu), so resuming doesn't undo theirs
+        bool const was_paused = machine().paused();
+        if (!was_paused)
+            machine().pause();
+        myosd_host_paused = !was_paused;
+        // the app may be killed while in the background: keep NVRAM (high scores etc.)
+        machine().nvram_save();
+    }
+    else if (pause == 0 && myosd_host_paused)
+    {
+        myosd_host_paused = false;
+        machine().resume();
+    }
+
+    int const zoom = myosd_zoom_request.exchange(-1);
+    if (zoom >= 0 && m_target != nullptr)
+    {
+        target()->set_zoom_to_screen(zoom != 0);
+        myosd_zoom_to_screen = zoom != 0;
+    }
+}
+
+//============================================================
+//  send_geometry - pass this frame's exported 3D geometry
+//  (collected while the driver drew the screen) to the host
+//============================================================
+
+void ios_osd_interface::send_geometry()
+{
+    if (!m_geometry_sink)
+        return;
+    m_geometry_sink->set_suppress(myosd_suppress_native_3d);
+    m_geometry_sink->send(m_callbacks.geometry_frame);
+}
+
+//============================================================
 //  update
 //============================================================
 
 void ios_osd_interface::update(bool skip_redraw)
 {
     osd_printf_verbose("ios_osd_interface::update\n");
+
+    apply_host_requests();
 
     // let the host look at the machine's state once per emulated frame,
     // whether or not this frame gets drawn (see libmame.h)
@@ -143,6 +205,8 @@ void ios_osd_interface::update(bool skip_redraw)
         info.paused = machine().paused() ? 1 : 0;
         m_callbacks.machine_frame(&info);
     }
+
+    send_geometry();
 
     // if skipping this redraw, bail
     if (skip_redraw || (m_callbacks.video_draw == NULL && m_callbacks.video_draw_pixels == NULL) || m_video_none)
