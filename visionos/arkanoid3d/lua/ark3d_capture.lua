@@ -19,6 +19,9 @@
 --   ARK3D_EVERY   keep every Nth frame   (default 1)
 --   ARK3D_FRAMES  stop after N frames    (default: run until MAME exits)
 --   ARK3D_LOG     print a one-line summary every N frames (default 60, 0 = off)
+--   ARK3D_INJECT  TESTING ONLY: a file of videoram (0x800) + spriteram (0x40)
+--                 bytes written into the shares before every capture, for the
+--                 end-to-end test (Tests/run_e2e.sh) with placeholder ROMs
 --
 -- Works with any MAME whose Lua API has manager.machine.memory.shares and
 -- emu.add_machine_frame_notifier (0.227 and later).
@@ -27,6 +30,7 @@ local out_path = os.getenv("ARK3D_OUT") or "ark3d_capture.bin"
 local every = tonumber(os.getenv("ARK3D_EVERY") or "1") or 1
 local max_frames = tonumber(os.getenv("ARK3D_FRAMES") or "0") or 0
 local log_every = tonumber(os.getenv("ARK3D_LOG") or "60") or 60
+local inject_path = os.getenv("ARK3D_INJECT")
 
 local machine = manager.machine
 local memory = machine.memory
@@ -84,6 +88,19 @@ local gfx_data, prom_data = region_bytes(gfx1), region_bytes(proms)
 file:write("ARK3DCAP", string.pack("<I4I4I4", 1, #gfx_data, #prom_data), gfx_data, prom_data)
 print(string.format("ark3d_capture: writing %s (gfx1 %d bytes, proms %d bytes)", out_path, #gfx_data, #prom_data))
 
+local inject
+if inject_path then
+	local f = need("inject file " .. inject_path, io.open(inject_path, "rb"))
+	inject = f:read("a")
+	f:close()
+	if #inject ~= 0x840 then error("ark3d_capture: inject file must be 0x840 bytes") end
+	print("ark3d_capture: TEST MODE, injecting " .. inject_path .. " into videoram/spriteram every frame")
+end
+local function do_inject()
+	for i = 0, 0x7ff do videoram:write_u8(i, inject:byte(i + 1)) end
+	for i = 0, 0x3f do spriteram:write_u8(i, inject:byte(0x800 + i + 1)) end
+end
+
 local screen = machine.screens[":screen"]
 local seen, written = 0, 0
 
@@ -105,6 +122,7 @@ subscription = emu.add_machine_frame_notifier(function()
 	if (seen - 1) % every ~= 0 then return end
 	if max_frames > 0 and written >= max_frames then return end
 
+	if inject then do_inject() end
 	local frame = screen and screen:frame_number() or seen
 	local vram = share_bytes(videoram, 0x800)
 	local sram = share_bytes(spriteram, 0x40)

@@ -229,6 +229,20 @@ void ark3d_sprite_view_rect(const uint8_t *sprite4, int *x, int *y);   // 16x8 a
 const char *ark3d_kind_name(int kind);
 const char *ark3d_capsule_name(int capsule);
 
+// accessors for Swift, which imports the fixed-size arrays above as tuples
+static inline const ark3d_brick *ark3d_brick_at(const ark3d_state *s, int row, int col)
+{
+    return (row >= 0 && row < ARK3D_MAX_GRID_ROWS && col >= 0 && col < ARK3D_MAX_GRID_COLS) ? &s->bricks[row][col] : NULL;
+}
+static inline const ark3d_object *ark3d_ball_at(const ark3d_state *s, int i)
+{
+    return (i >= 0 && i < s->ball_count) ? &s->balls[i] : NULL;
+}
+static inline const ark3d_object *ark3d_object_at(const ark3d_state *s, int i)
+{
+    return (i >= 0 && i < s->object_count) ? &s->objects[i] : NULL;
+}
+
 #if defined(__cplusplus)
 }
 #endif

@@ -3,6 +3,7 @@
 # Linux/macOS host tests for the Arkanoid state decoder.
 #   make -C visionos/arkanoid3d/Tests          # build and run the unit tests
 #   make -C visionos/arkanoid3d/Tests dump     # build the capture decoder tool
+#   ./run_e2e.sh /path/to/mame                 # plumbing test through a real MAME build
 
 CC ?= cc
 CFLAGS ?= -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion -Werror
@@ -14,7 +15,7 @@ all: test
 $(OUT):
 	mkdir -p $(OUT)
 
-$(OUT)/test_ark3d: test_ark3d.c $(DECODER)/ark3d.c $(DECODER)/ark3d.h | $(OUT)
+$(OUT)/test_ark3d: test_ark3d.c synthetic.h $(DECODER)/ark3d.c $(DECODER)/ark3d.h | $(OUT)
 	$(CC) $(CFLAGS) -I$(DECODER) -o $@ test_ark3d.c $(DECODER)/ark3d.c
 
 $(OUT)/ark3d_dump: ark3d_dump.c $(DECODER)/ark3d.c $(DECODER)/ark3d.h | $(OUT)
@@ -23,9 +24,14 @@ $(OUT)/ark3d_dump: ark3d_dump.c $(DECODER)/ark3d.c $(DECODER)/ark3d.h | $(OUT)
 test: $(OUT)/test_ark3d
 	$(OUT)/test_ark3d
 
+$(OUT)/ark3d_synth: ark3d_synth.c synthetic.h $(DECODER)/ark3d.c $(DECODER)/ark3d.h | $(OUT)
+	$(CC) $(CFLAGS) -I$(DECODER) -o $@ ark3d_synth.c
+
 dump: $(OUT)/ark3d_dump
+
+synth: $(OUT)/ark3d_synth
 
 clean:
 	rm -rf $(OUT)
 
-.PHONY: all test dump clean
+.PHONY: all test dump synth clean
