@@ -27,6 +27,9 @@ struct TheaterView: View {
                 screen.update()
             }
         }
+        // a theater screen shows just the game screen, not bezel artwork around it
+        .onAppear { MAMEEngine.shared.setZoomToScreen(true) }
+        .onDisappear { MAMEEngine.shared.setZoomToScreen(false) }
     }
 }
 

@@ -65,14 +65,39 @@ final class MAMEEngine: @unchecked Sendable {
     static let shared = MAMEEngine()
 
     let frames = FrameStore()
+    let geometry = GeometryStore()
     let input = GameControllerInput()
     private var thread: Thread?
+
+    /// Ask libmame for exported 3D geometry (drivers that support it, e.g.
+    /// Sega Model 1).  Must be set before `start`; costs a copy per frame.
+    var wantsGeometry = false
 
     /// Size MAME lays its render target out for.  The software renderer draws
     /// at this size; the GPU scales the result to the window.
     var renderSize = (width: 1280, height: 960)
 
     var isRunning: Bool { thread != nil }
+
+    // MARK: - runtime controls (safe from any thread; applied by MAME at the next frame)
+
+    /// Pause for backgrounding.  Also flushes NVRAM, so high scores survive the
+    /// app being killed while suspended.  Never undoes a pause the user made in MAME.
+    func setPaused(_ paused: Bool) {
+        guard isRunning else { return }
+        myosd_set(Int32(MYOSD_PAUSE), paused ? 1 : 0)
+    }
+
+    /// Frame only the emulated screen, cropping artwork (theater / per-game renderers).
+    func setZoomToScreen(_ zoom: Bool) {
+        myosd_set(Int32(MYOSD_ZOOM_TO_SCREEN), zoom ? 1 : 0)
+    }
+
+    /// With `wantsGeometry`: have the driver skip rasterizing the 3D it exports,
+    /// leaving only its 2D layers in the video frame (for compositing host-rendered 3D).
+    func setSuppressNative3D(_ suppress: Bool) {
+        myosd_set(Int32(MYOSD_SUPPRESS_NATIVE_3D), suppress ? 1 : 0)
+    }
 
     /// Runs MAME on its own thread; `onExit` is called on the main queue when it returns.
     func start(arguments: [String], onExit: @escaping () -> Void = {}) {
@@ -119,6 +144,12 @@ final class MAMEEngine: @unchecked Sendable {
         callbacks.input_poll = { state, size in
             guard let state, size >= MemoryLayout<myosd_input_state>.size else { return }
             MAMEEngine.shared.input.poll(into: state)
+        }
+        if MAMEEngine.shared.wantsGeometry {
+            callbacks.geometry_frame = { frame in
+                guard let frame else { return }
+                MAMEEngine.shared.geometry.store(frame.pointee)
+            }
         }
         // sound callbacks left nil: libmame falls back to its own AudioQueue output
 

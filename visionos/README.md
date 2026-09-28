@@ -117,6 +117,11 @@ cd visionos/app && xcodegen && open MAMEVision.xcodeproj
   - `FrameView`: MTKView presenter with a 4-texture ring, aspect-fit by the game's intended aspect.
   - `GameControllerInput`: GCExtendedGamepad to `myosd_input_state`. Select+Start opens the menu, Select+L1 exits (ESC) and Select+R1 pauses.
   - Sound uses libmame's built-in AudioQueue output.
+  - **Lifecycle:** emulation pauses, and NVRAM is flushed, once every MAMEVision scene is in the background (window closed, headset off). It resumes when the app comes back. A pause you made in MAME itself is left alone.
+  - Theater mode frames just the game screen (`MYOSD_ZOOM_TO_SCREEN`), cropping bezel artwork.
+- **For per-game renderers** (see RESEARCH.md §7a):
+  - `MAMEEngine.wantsGeometry` turns on libmame's `geometry_frame` callback. `GeometryStore` then holds each frame's camera-space 3D polygons, for drivers that export them (Sega Model 1 so far, via `src/emu/geomexport.h`).
+  - `setSuppressNative3D(true)` leaves only the game's 2D layers in the video frame, so host-rendered 3D can be composited under the HUD.
 - Unverified until a Mac builds it:
   - The Swift, Metal and RealityKit code has never been compiled. The `LowLevelTexture` / `TextureResource(from:)` calls in particular are written from Apple's docs and WWDC material.
   - Colours in theater mode: RealityKit may treat the `bgra8Unorm` texture as linear. If it looks washed out or too dark, try `bgra8Unorm_srgb`.

@@ -8,6 +8,83 @@
 
 #include "libmame.h"
 
+#include "geomexport.h"
+
+#include <atomic>
+#include <memory>
+#include <vector>
+
+//============================================================
+//  ios_geometry_sink - collects the 3D geometry drivers export
+//  during a frame (src/emu/geomexport.h) for the host's
+//  geometry_frame callback
+//============================================================
+
+class ios_geometry_sink : public emu::geometry_export::sink
+{
+public:
+    virtual void polygons(const emu::geometry_export::projection &proj, const emu::geometry_export::polygon *polys, std::size_t count) override
+    {
+        batch &b = m_batches.emplace_back();
+        b.proj = proj;
+        b.polys.reserve(count);
+        for (std::size_t i = 0; i < count; i++)
+        {
+            const emu::geometry_export::polygon &in = polys[i];
+            myosd_polygon &out = b.polys.emplace_back();
+            for (int j = 0; j < 4; j++)
+                out.v[j] = myosd_vertex{ in.v[j].x, in.v[j].y, in.v[j].z };
+            out.count = in.count;
+            out.rgb = in.rgb;
+            out.flags = ((in.flags & emu::geometry_export::POLY_FLAG_MOIRE) ? MYOSD_POLY_MOIRE : 0)
+                    | ((in.flags & emu::geometry_export::POLY_FLAG_WIREFRAME) ? MYOSD_POLY_WIREFRAME : 0);
+            out.sort_z = in.sort_z;
+        }
+    }
+
+    virtual bool suppress_native_rendering() const override { return m_suppress; }
+    void set_suppress(bool suppress) { m_suppress = suppress; }
+
+    // hand everything collected since the last call to the host, then clear
+    void send(void (*callback)(const myosd_geometry_frame *))
+    {
+        std::vector<myosd_geometry_batch> out;
+        out.reserve(m_batches.size());
+        for (const batch &b : m_batches)
+        {
+            myosd_geometry_batch &o = out.emplace_back();
+            o.center_x = b.proj.center_x;
+            o.center_y = b.proj.center_y;
+            o.scale_x = b.proj.scale_x;
+            o.scale_y = b.proj.scale_y;
+            o.offset_x = b.proj.offset_x;
+            o.offset_y = b.proj.offset_y;
+            o.clip_min_x = b.proj.clip_min_x;
+            o.clip_min_y = b.proj.clip_min_y;
+            o.clip_max_x = b.proj.clip_max_x;
+            o.clip_max_y = b.proj.clip_max_y;
+            o.screen_width = b.proj.screen_width;
+            o.screen_height = b.proj.screen_height;
+            o.polygons = b.polys.data();
+            o.count = int(b.polys.size());
+        }
+        myosd_geometry_frame frame;
+        frame.batches = out.data();
+        frame.count = int(out.size());
+        callback(&frame);
+        m_batches.clear();
+    }
+
+private:
+    struct batch
+    {
+        emu::geometry_export::projection proj;
+        std::vector<myosd_polygon> polys;
+    };
+    std::vector<batch> m_batches;
+    bool m_suppress = false;
+};
+
 //============================================================
 // DebugLog
 //============================================================
@@ -24,6 +101,11 @@
 //============================================================
 extern int myosd_display_width;
 extern int myosd_display_height;
+extern std::atomic<int> myosd_pause_request;
+extern std::atomic<bool> myosd_host_paused;
+extern std::atomic<int> myosd_zoom_request;
+extern std::atomic<bool> myosd_zoom_to_screen;
+extern std::atomic<bool> myosd_suppress_native_3d;
 
 //============================================================
 //  OPTIONS
@@ -109,6 +191,8 @@ public:
     // getters
     running_machine &machine() const { assert(m_machine != nullptr); return *m_machine; }
     render_target *target() const { assert(m_target != nullptr); return m_target; }
+    void apply_host_requests();
+    void send_geometry();
     emu_options &options() { return m_options; }
 
 private:
@@ -134,6 +218,7 @@ private:
     int m_vis_width, m_vis_height;
     int m_video_none;
     std::vector<uint32_t> m_pixels;         // framebuffer for video_draw_pixels
+    std::unique_ptr<class ios_geometry_sink> m_geometry_sink; // forwards driver geometry to geometry_frame
 
     // audio
     int m_attenuation;
