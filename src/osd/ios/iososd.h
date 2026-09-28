@@ -25,6 +25,9 @@
 extern int myosd_display_width;
 extern int myosd_display_height;
 
+// the running machine, between osd init() and machine exit (state.cpp)
+extern running_machine *g_ios_machine;
+
 //============================================================
 //  OPTIONS
 //============================================================
