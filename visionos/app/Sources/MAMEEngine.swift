@@ -15,15 +15,25 @@ import libmame
 
 private let log = Logger(subsystem: "org.mamedev.mamevision", category: "mame")
 
-/// Latest emulator frame, handed from the MAME thread to the renderer.
+/// Describes the frame currently held by a FrameStore.
+struct FrameInfo {
+    var width = 0           // framebuffer size (an integer multiple of the source size)
+    var height = 0
+    var sourceWidth = 0     // machine's native resolution, for scanline/mask effects
+    var sourceHeight = 0
+    var aspect: Float = 4.0 / 3.0   // intended display aspect (pixels may be non-square)
+    var serial = 0
+}
+
+/// Latest emulator frame, handed from the MAME thread to the renderers.
 final class FrameStore: @unchecked Sendable {
     private let lock = NSLock()
     private var pixels = [UInt32]()
-    private(set) var width = 0
-    private(set) var height = 0
-    private(set) var serial = 0
+    private var info = FrameInfo()
 
-    func store(_ src: UnsafePointer<UInt32>, width: Int, height: Int, pitch: Int) {
+    func store(_ frame: myosd_video_frame) {
+        guard let src = frame.pixels, frame.width > 0, frame.height > 0 else { return }
+        let width = Int(frame.width), height = Int(frame.height), pitch = Int(frame.pitch)
         lock.lock()
         defer { lock.unlock() }
         if pixels.count < width * height {
@@ -34,17 +44,20 @@ final class FrameStore: @unchecked Sendable {
                 (dst.baseAddress! + y * width).update(from: src + y * pitch, count: width)
             }
         }
-        self.width = width
-        self.height = height
-        serial &+= 1
+        info.width = width
+        info.height = height
+        info.sourceWidth = Int(frame.source_width)
+        info.sourceHeight = Int(frame.source_height)
+        info.aspect = frame.aspect > 0 ? frame.aspect : Float(width) / Float(height)
+        info.serial &+= 1
     }
 
-    /// Calls body with the latest frame if it is newer than `since`.
-    func read(since: Int, _ body: (UnsafePointer<UInt32>, Int, Int, Int) -> Void) {
+    /// Calls body with the latest frame if it is newer than `since` (a previous serial).
+    func read(since: Int, _ body: (UnsafePointer<UInt32>, FrameInfo) -> Void) {
         lock.lock()
         defer { lock.unlock() }
-        guard serial != since, width > 0, height > 0 else { return }
-        pixels.withUnsafeBufferPointer { body($0.baseAddress!, width, height, serial) }
+        guard info.serial != since, info.width > 0, info.height > 0 else { return }
+        pixels.withUnsafeBufferPointer { body($0.baseAddress!, info) }
     }
 }
 
@@ -61,7 +74,8 @@ final class MAMEEngine: @unchecked Sendable {
 
     var isRunning: Bool { thread != nil }
 
-    func start(arguments: [String]) {
+    /// Runs MAME on its own thread; `onExit` is called on the main queue when it returns.
+    func start(arguments: [String], onExit: @escaping () -> Void = {}) {
         guard thread == nil else { return }
 
         configureAudioSession()
@@ -76,7 +90,10 @@ final class MAMEEngine: @unchecked Sendable {
             myosd_set(Int32(MYOSD_DISPLAY_HEIGHT), renderSize.height)
             let result = Self.runMAME(args)
             log.info("MAME exited with \(result)")
-            DispatchQueue.main.async { self.thread = nil }
+            DispatchQueue.main.async {
+                self.thread = nil
+                onExit()
+            }
         }
         t.name = "MAME"
         t.stackSize = 16 << 20   // MAME's drivers and UI recurse deeply
@@ -95,9 +112,9 @@ final class MAMEEngine: @unchecked Sendable {
             let s = String(cString: text).trimmingCharacters(in: .newlines)
             if !s.isEmpty { log.log("\(s, privacy: .public)") }
         }
-        callbacks.video_draw_pixels = { pixels, width, height, pitch in
-            guard let pixels else { return }
-            MAMEEngine.shared.frames.store(pixels, width: Int(width), height: Int(height), pitch: Int(pitch))
+        callbacks.video_draw_pixels = { frame in
+            guard let frame else { return }
+            MAMEEngine.shared.frames.store(frame.pointee)
         }
         callbacks.input_poll = { state, size in
             guard let state, size >= MemoryLayout<myosd_input_state>.size else { return }
@@ -117,7 +134,7 @@ final class MAMEEngine: @unchecked Sendable {
 
     /// Xcode and the OS add launch arguments such as `-NSDocumentRevisionsDebugMode YES`
     /// or `-AppleLanguages (en)`; MAME would reject them as unknown options.
-    private static func stripSystemArguments(_ args: [String]) -> [String] {
+    static func stripSystemArguments(_ args: [String]) -> [String] {
         var result: [String] = []
         var skipValue = false
         for arg in args {
@@ -141,7 +158,8 @@ final class MAMEEngine: @unchecked Sendable {
     }
 
     /// Documents is MAME's working directory; it is visible in the Files app.
-    private static func prepareDocuments() -> URL {
+    @discardableResult
+    static func prepareDocuments() -> URL {
         let fm = FileManager.default
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         for dir in ["roms", "cfg", "nvram", "ini", "artwork", "samples", "snap", "sta"] {

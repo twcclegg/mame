@@ -107,13 +107,19 @@ cd visionos/app && xcodegen && open MAMEVision.xcodeproj
 
 - `make visionos-libmame` / `make visionos-sim-libmame` build the libraries. `make-libmame.sh` uses its own `BUILDDIR` (`build/libmame`), merges all the archives with `libtool` and packages them with `libmame.h` and a module map, so Swift can `import libmame`.
 - The `ios` OSD was imported from ToddLa/mame at `fc040128` (MAME 0.288) and adapted to 0.289: `screen_type()` became `device_video_output_interface::is_vector()` / `screen_device::is_lcd()`, and `input.cpp` now includes `input.h`. bgfx isn't built for it.
-- **New optional callback** `video_draw_pixels` in `libmame.h` (appended to the struct, so existing hosts are unaffected): MAME rasterizes the frame with its own software renderer (`rendersw.hxx`, the `-video soft` code) and hands the host a BGRA buffer. That lets the host get a picture up without implementing a primitive renderer. The primitive-list `video_draw` path is unchanged and still the one to use for spatial or layered rendering later.
+- **New optional callback** `video_draw_pixels(const myosd_video_frame*)` in `libmame.h` (appended to the struct, so existing hosts are unaffected). MAME rasterizes the frame with its own software renderer (`rendersw.hxx`, the `-video soft` code) at the machine's **native resolution × an integer scale**, with non-square pixels where the game uses them. It reports the native size and the intended display aspect alongside the pixels. The host doesn't need a primitive renderer, and its scanline/mask shaders line up with real game pixels. The primitive-list `video_draw` path is unchanged, and it's the one to use for layered artwork later.
 - Also fixed: an out-of-bounds write in `video.cpp` when the primitive list is empty; `libmame.h` wasn't self-contained (missing `<stddef.h>`); clipboard support is enabled on visionOS in `paste.mm`.
 - Host app (`visionos/app/Sources`):
-  - `MAMEEngine` runs `myosd_main` on a 16 MB-stack thread, with Documents as the working directory (`roms/` and so on) and launch arguments passed through.
-  - `FrameView` is an MTKView that shows the frame aspect-fit with nearest sampling, through a 4-texture ring.
-  - `GameControllerInput` maps GCExtendedGamepad to `myosd_input_state`. Select+Start opens the menu, Select+L1 exits (ESC) and Select+R1 pauses.
+  - **Main window** (`ContentView`): lists ROM sets in Documents/roms (or opens MAME's own menu); while a game runs, shows it with an ornament for the **effect** and **Theater**. Launch arguments (e.g. `pacman`) skip the picker.
+  - **Effects** (`Shaders.metal`, shared by both views): *Pixels* (nearest), *Sharp* (sharp-bilinear), *CRT* (sharp base, gaussian scanlines per native line, aperture mask at ≥3× scale).
+  - **Theater** (`TheaterView`): an `ImmersiveSpace` (mixed or full) with a 4.5 m screen 5 m away. Each RealityKit update, a compute pass writes the newest frame with the chosen effect into a `LowLevelTexture` at an integer multiple of native resolution (capped at 2048 px, about the headset's resolution for that screen) and shown through an `UnlitMaterial`.
+  - `MAMEEngine`: runs `myosd_main` on a 16 MB-stack thread, with Documents as the working directory; can relaunch after a game exits.
+  - `FrameView`: MTKView presenter with a 4-texture ring, aspect-fit by the game's intended aspect.
+  - `GameControllerInput`: GCExtendedGamepad to `myosd_input_state`. Select+Start opens the menu, Select+L1 exits (ESC) and Select+R1 pauses.
   - Sound uses libmame's built-in AudioQueue output.
+- Unverified until a Mac builds it:
+  - The Swift, Metal and RealityKit code has never been compiled. The `LowLevelTexture` / `TextureResource(from:)` calls in particular are written from Apple's docs and WWDC material.
+  - Colours in theater mode: RealityKit may treat the `bgra8Unorm` texture as linear. If it looks washed out or too dark, try `bgra8Unorm_srgb`.
 
 ## What changed for the port
 

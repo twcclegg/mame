@@ -151,22 +151,50 @@ void ios_osd_interface::update(bool skip_redraw)
             m_callbacks.video_init(vis_width, vis_height, min_width, min_height);
     }
 
-    target()->set_bounds(vis_width, vis_height, 1.0);
-    render_primitive_list *primlist = &target()->get_primitives();
-    
-    primlist->acquire_lock();
-
-    // host wants a finished frame: rasterize with MAME's software renderer
+    // host wants a finished frame: rasterize with MAME's software renderer at
+    // the machine's native resolution times an integer scale (so the host's
+    // scanline/mask shaders line up with real pixels, and MAME's own menus stay
+    // legible), with non-square pixels so the layout fills the whole frame.
     if (m_callbacks.video_draw_pixels != NULL)
     {
-        size_t const count = size_t(vis_width) * size_t(vis_height);
+        int src_width = min_width, src_height = min_height;
+        if (src_width <= 0 || src_height <= 0)
+        {
+            src_width = vis_width;
+            src_height = vis_height;
+        }
+        int const scale = MAX(1, MIN(MAX(640, myosd_display_width) / src_width, MAX(480, myosd_display_height) / src_height));
+        int const width = src_width * scale, height = src_height * scale;
+        float const aspect = float(vis_width) / float(vis_height);
+
+        // pixel_aspect is pixel width / pixel height
+        target()->set_bounds(width, height, aspect * float(height) / float(width));
+        render_primitive_list &prims = target()->get_primitives();
+
+        size_t const count = size_t(width) * size_t(height);
         if (m_pixels.size() < count)
             m_pixels.resize(count);
-        software_renderer<uint32_t, 0,0,0, 16,8,0>::draw_primitives(*primlist, m_pixels.data(), vis_width, vis_height, vis_width);
-        primlist->release_lock();
-        m_callbacks.video_draw_pixels(m_pixels.data(), vis_width, vis_height, vis_width);
+
+        prims.acquire_lock();
+        software_renderer<uint32_t, 0,0,0, 16,8,0>::draw_primitives(prims, m_pixels.data(), width, height, width);
+        prims.release_lock();
+
+        myosd_video_frame frame;
+        frame.pixels = m_pixels.data();
+        frame.width = width;
+        frame.height = height;
+        frame.pitch = width;
+        frame.source_width = src_width;
+        frame.source_height = src_height;
+        frame.aspect = aspect;
+        m_callbacks.video_draw_pixels(&frame);
         return;
     }
+
+    target()->set_bounds(vis_width, vis_height, 1.0);
+    render_primitive_list *primlist = &target()->get_primitives();
+
+    primlist->acquire_lock();
 
     // TODO: is 4K enough? make dynamic?
     static myosd_render_primitive myosd_prim[4096];

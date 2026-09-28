@@ -366,6 +366,17 @@ enum {
 extern intptr_t myosd_get(int var);
 extern void myosd_set(int var, intptr_t value);
 
+// a finished frame for the video_draw_pixels callback
+typedef struct {
+    const uint32_t* pixels;     // 32-bit 0x--RRGGBB (MTLPixelFormatBGRA8Unorm in memory), alpha byte undefined
+    int width;                  // framebuffer size in pixels: source_width/height times an integer scale
+    int height;
+    int pitch;                  // row stride in pixels
+    int source_width;           // the machine's native resolution (e.g. 224x288 for Pac-Man);
+    int source_height;          //   pixels are integer multiples of this, for scanline/mask effects
+    float aspect;               // intended display aspect ratio (width / height); pixels need not be square
+} myosd_video_frame;            // only valid for the duration of the callback
+
 // MYOSD app callback functions
 typedef struct {
 
@@ -391,10 +402,8 @@ typedef struct {
 
     // OPTIONAL (added for the visionOS port, keep at the end for ABI compatibility):
     // if set, MAME rasterizes each frame itself with its software renderer and
-    // passes the result here instead of calling video_draw.  pixels are 32-bit
-    // 0x--RRGGBB (i.e. MTLPixelFormatBGRA8Unorm in memory, alpha byte undefined),
-    // pitch is in pixels.  The buffer is only valid for the duration of the call.
-    void (*video_draw_pixels)(const uint32_t* pixels, int width, int height, int pitch);
+    // passes the result here instead of calling video_draw.  See myosd_video_frame.
+    void (*video_draw_pixels)(const myosd_video_frame* frame);
 
 }   myosd_callbacks;
 

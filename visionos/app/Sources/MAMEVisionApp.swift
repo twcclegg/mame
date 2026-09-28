@@ -1,27 +1,32 @@
 // license:BSD-3-Clause
 //
-// MAMEVision - minimal visionOS host for libmame.
+// MAMEVision - visionOS host for libmame.
 //
-// Launch arguments are passed through to MAME, e.g.
+// The main window lists ROM sets in the app's Documents/roms (Files app /
+// Finder file sharing) and shows the game once one is running.  Launch
+// arguments are passed through to MAME, e.g.
 //   xcrun simctl launch booted org.mamedev.mamevision pacman
-// With no arguments MAME shows its own system-selection menu (drive it with
-// a game controller: d-pad + A/B; see GameControllerInput for combos).
-// ROMs go in the app's Documents/roms (Files app / Finder file sharing).
+// "Theater" moves the picture to a large screen in an immersive space.
+// Game controller combos are listed in GameControllerInput.swift.
 
 import SwiftUI
 
 @main
 struct MAMEVisionApp: App {
+    static let theaterID = "theater"
+
+    @State private var immersion: ImmersionStyle = .mixed
+
     var body: some Scene {
         WindowGroup {
-            FrameView(frames: MAMEEngine.shared.frames)
-                .aspectRatio(4.0 / 3.0, contentMode: .fit)
-                .background(.black)
-                .onAppear {
-                    MAMEEngine.shared.start(arguments: Array(CommandLine.arguments.dropFirst()))
-                }
+            ContentView()
         }
         .defaultSize(width: 1280, height: 960)
-        .windowResizability(.contentSize)
+
+        // mixed: the screen floats in your room; full: a dark theater
+        ImmersiveSpace(id: Self.theaterID) {
+            TheaterView()
+        }
+        .immersionStyle(selection: $immersion, in: .mixed, .full)
     }
 }
