@@ -28,6 +28,19 @@ struct ContentView: View {
             if !args.isEmpty && !model.running {
                 model.launch(nil, extraArguments: args)
             }
+            // Test hook only, off by default: MAMEVISION_AUTO_THEATER=1 opens
+            // Theater automatically once a game is running, for driving this
+            // from `simctl launch` (SIMCTL_CHILD_MAMEVISION_AUTO_THEATER=1)
+            // where there's no way to tap the Theater button.
+            if ProcessInfo.processInfo.environment["MAMEVISION_AUTO_THEATER"] == "1" {
+                Task {
+                    while !model.running { try? await Task.sleep(for: .milliseconds(100)) }
+                    try? await Task.sleep(for: .seconds(1))
+                    if case .opened = await openImmersiveSpace(id: MAMEVisionApp.theaterID) {
+                        model.theaterOpen = true
+                    }
+                }
+            }
         }
         .onChange(of: model.effect) { _, effect in
             PresentSettings.effect = effect
