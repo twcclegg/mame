@@ -271,6 +271,14 @@ static void test_default_calibration(void)
     CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
     CHECK_EQ(st.bricks[5][1].kind, ARK3D_KIND_BRICK);
     CHECK_EQ(st.vaus_phase, ARK3D_VAUS_EXPLODING);
+    CHECK_NEAR(st.gate_open[0], 0);
+
+    // the right hatch half open (third of five steps)
+    for (int i = 0; i < 4; i++)
+        put_tile(ARK3D_GATE_RIGHT_COL + i, 2, 0x152 + i, 0x1c);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_NEAR(st.gate_open[0], 0);
+    CHECK_NEAR(st.gate_open[1], 0.6);
 }
 
 static void test_bad_input(void)

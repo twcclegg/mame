@@ -124,10 +124,18 @@ final class PlayfieldScene {
             wall.position = local(x, (top + bottom) / 2 - Float(layout.field_left) / 2, h / 2)
             field.addChild(wall)
         }
-        let topWall = ModelEntity(mesh: .generateBox(width: Float(ARK3D_VIEW_W) * s, height: h, depth: wallW, cornerRadius: wallW / 3),
+        // the top wall, in segments around the two enemy hatches
+        let wallY = top - Float(layout.field_left) / 2
+        let gates: [(Float, Float)] = [(Float(ARK3D_GATE_LEFT_COL) * 8, Float(ARK3D_GATE_LEFT_COL + 4) * 8),
+                                       (Float(ARK3D_GATE_RIGHT_COL) * 8, Float(ARK3D_GATE_RIGHT_COL + 4) * 8)]
+        let segments: [(Float, Float)] = [(0, gates[0].0), (gates[0].1, gates[1].0), (gates[1].1, Float(ARK3D_VIEW_W))]
+        for (x0, x1) in segments {
+            let seg = ModelEntity(mesh: .generateBox(width: (x1 - x0) * s, height: h, depth: wallW, cornerRadius: wallW / 3),
                                   materials: [wallMat])
-        topWall.position = local(Float(ARK3D_VIEW_W) / 2, top - Float(layout.field_left) / 2, h / 2)
-        field.addChild(topWall)
+            seg.position = local((x0 + x1) / 2, wallY, h / 2)
+            field.addChild(seg)
+        }
+        buildGates(gates, wallY: wallY, wallMat: wallMat)
 
         // pinch target over the whole field
         touchSurface.components.set(InputTargetComponent())
@@ -141,6 +149,53 @@ final class PlayfieldScene {
         light.position = local(Float(ARK3D_VIEW_W) / 2, (top + bottom) / 2, 0.4)
         field.addChild(light)
     }
+
+    /// Each hatch: a dark opening with a glow deep inside, and two doors that
+    /// slide into the wall on either side as the game opens it.
+    private func buildGates(_ gates: [(Float, Float)], wallY: Float, wallMat: PhysicallyBasedMaterial) {
+        let s = Self.metresPerPixel, h = Self.wallHeight, depth = Float(layout.field_left) * s
+        var doorMat = wallMat
+        doorMat.baseColor = .init(tint: UIColor(white: 0.55, alpha: 1))
+        doorMat.roughness = .init(floatLiteral: 0.25)
+        var seamMat = UnlitMaterial(color: UIColor(red: 1, green: 0.15, blue: 0.1, alpha: 1))
+        seamMat.blending = .transparent(opacity: .init(floatLiteral: 0.9))
+        let holeMat = UnlitMaterial(color: UIColor(white: 0.03, alpha: 1))
+        var glowMat = UnlitMaterial(color: UIColor(red: 1, green: 0.45, blue: 0.1, alpha: 1))
+        glowMat.blending = .transparent(opacity: .init(floatLiteral: 0.9))
+        for (x0, x1) in gates {
+            let w = x1 - x0
+            // a shallow dark pit, glowing on its floor
+            let hole = ModelEntity(mesh: .generateBox(width: w * s, height: h * 0.25, depth: depth), materials: [holeMat])
+            hole.position = local((x0 + x1) / 2, wallY, h * 0.125)
+            field.addChild(hole)
+            let glow = ModelEntity(mesh: .generateBox(width: (w - 3) * s, height: 0.001, depth: depth * 0.7), materials: [glowMat])
+            glow.position = local((x0 + x1) / 2, wallY, h * 0.25 + 0.0006)
+            glow.isEnabled = false
+            field.addChild(glow)
+            var doors: [Entity] = []
+            for side in 0..<2 {
+                // pivot at the door's outer edge, so scaling x slides it into the wall
+                let pivot = Entity()
+                pivot.position = local(side == 0 ? x0 : x1, wallY, h / 2)
+                let door = ModelEntity(mesh: .generateBox(width: w / 2 * s, height: h * 1.02, depth: depth * 1.02, cornerRadius: 0.001),
+                                       materials: [doorMat])
+                door.position.x = (side == 0 ? 1 : -1) * w / 4 * s
+                pivot.addChild(door)
+                // a red seam along the edge where the doors meet
+                let seam = ModelEntity(mesh: .generateBox(width: 0.6 * s, height: h * 1.03, depth: depth * 1.03), materials: [seamMat])
+                seam.position.x = (side == 0 ? 1 : -1) * (w / 2 - 0.3) * s
+                pivot.addChild(seam)
+                field.addChild(pivot)
+                doors.append(pivot)
+            }
+            gateDoors.append(doors)
+            gateGlows.append(glow)
+            gateShown.append(0)
+        }
+    }
+    private var gateDoors: [[Entity]] = []
+    private var gateGlows: [ModelEntity] = []
+    private var gateShown: [Float] = []
 
     private func buildPools() {
         let s = Self.metresPerPixel
@@ -454,6 +509,15 @@ final class PlayfieldScene {
             lasers.forEach { $0.isEnabled = false }
             clearBricks()
             return
+        }
+
+        // enemy hatches: doors follow the game's 5 steps, smoothed
+        let open = [s.gate_open.0, s.gate_open.1]
+        for g in 0..<gateDoors.count {
+            gateShown[g] += (open[g] - gateShown[g]) * min(1, dt * 18)
+            let closed = max(0.001, 1 - gateShown[g])
+            for pivot in gateDoors[g] { pivot.scale = [closed, 1, 1] }
+            gateGlows[g].isEnabled = gateShown[g] > 0.05
         }
 
         // Vaus: materialises by growing, explodes into sparks

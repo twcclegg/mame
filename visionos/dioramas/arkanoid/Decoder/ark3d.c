@@ -181,6 +181,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     fill(cal->tile_kind, 0x000, 0x0ff, ARK3D_KIND_TEXT);            // the font, scores
     fill(cal->tile_kind, 0x710, 0x719, ARK3D_KIND_TEXT);            // the attract demo's "GAME OVER" banner
     fill(cal->tile_kind, 0x11e, 0x129, ARK3D_KIND_WALL);            // side walls and the top wall
+    fill(cal->tile_kind, 0x14a, 0x15d, ARK3D_KIND_WALL);            // enemy hatches opening (see gate_open)
     fill(cal->tile_kind, 0x15e, 0x16d, ARK3D_KIND_BRICK);
     fill(cal->tile_kind, 0x16e, 0x179, ARK3D_KIND_BRICK_SILVER);
 
@@ -502,6 +503,21 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             for (int code = 0; code < ARK3D_NUM_CHARS && !calibrated_walls; code++)
                 calibrated_walls = cal->tile_kind[code] == ARK3D_KIND_WALL;
         st->in_play = calibrated_walls ? (walls >= 2 * rows) : 1;
+    }
+
+    // ---- enemy hatches.  [game] closed they're tiles 124-127 in row 2; they
+    // open through 14a, 14e, 152, 156, 15a (4 tiles each, 4 frames a step)
+    // and close the same way back.
+    {
+        static const int gate_cols[2] = { ARK3D_GATE_LEFT_COL, ARK3D_GATE_RIGHT_COL };
+        for (int gate = 0; gate < 2; gate++)
+        {
+            int const code = st->tile_code[2][gate_cols[gate]];
+            int step = 0;
+            if (code >= 0x14a && code <= 0x15d)
+                step = (code - 0x14a) / 4 + 1;
+            st->gate_open[gate] = (float)step / 5.0f;
+        }
     }
 
     // ---- bricks

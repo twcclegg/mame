@@ -46,6 +46,8 @@ extern "C" {
 #define ARK3D_VIEW_ROWS        32       // view tile rows
 
 #define ARK3D_MAX_GRID_COLS    16
+#define ARK3D_GATE_LEFT_COL    5        // view tile columns of the enemy hatches in
+#define ARK3D_GATE_RIGHT_COL   19       // the top wall (4 tiles each), row 2
 #define ARK3D_MAX_GRID_ROWS    32
 #define ARK3D_MAX_BALLS        8
 #define ARK3D_MAX_OBJECTS      16
@@ -220,6 +222,8 @@ typedef struct {
     ark3d_object objects[ARK3D_MAX_OBJECTS];    // capsules, enemies, lasers, other
     int object_count;
 
+    float gate_open[2];             // the enemy hatches in the top wall (view x
+                                    // 40-72 and 152-184): 0 closed .. 1 open
     int in_play;                    // a round's playfield is on screen (not the title,
                                     // high-score or intro screens); bricks are only
                                     // decoded then
