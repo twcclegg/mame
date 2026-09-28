@@ -4,11 +4,11 @@ Experimental visionOS port. It uses the `sdl3` OSD and presents MAME as a flat
 window in the Shared Space. Background and the longer-term plan are in
 [RESEARCH.md](RESEARCH.md).
 
-**Status (2026-09-27): it runs.** `MAME-sim.app` launches in the visionOS 26.5
-Simulator and renders MAME's system-selection UI — a real Metal-backed window
-floating in the Shared Space, gamepad detected, audio/keyboard/mouse all
-initialized. Getting here took two fixes beyond the original build-only
-milestone:
+**Status (2026-09-27): it plays a real game.** Arkanoid (World v1.0, fully
+byte-verified romset) boots and runs in the visionOS 26.5 Simulator — title
+screen, actual Level 1 gameplay, YM2149 sound, all rendering correctly as a
+Metal-backed window in the Shared Space. Getting from "compiles" to "plays"
+took two runtime fixes beyond the original build-only milestone:
 
 1. **Use SDL ≥ 3.4.0, not `release-3.2.x`.** The 3.2.x branch has zero UIScene
    support in its UIKit backend. visionOS *requires* scene-lifecycle adoption
@@ -23,8 +23,16 @@ milestone:
    below. This is a real, platform-agnostic MAME bug the visionOS port just
    happened to be the first to hit hard.
 
-Still open: device (hardware) launch is untested — everything below "still
-open" in **Things to verify** hasn't been exercised yet.
+Also new: `visionos/ini/mame.ini` now defaults spinner/paddle/trackball
+controls (`IPT_DIAL`/`IPT_PADDLE`/`IPT_TRACKBALL` — Arkanoid's paddle is a
+dial) to the gaze pointer, since visionOS exposes gaze+pinch to windowed apps
+as ordinary mouse motion. Not yet confirmed hands-on — this build machine has
+no way to synthesize pointer input to test it programmatically.
+
+Still open: device (hardware) launch is untested, `-video bgfx` specifically
+hasn't been run on visionOS (though the underlying code path works, see
+below), and gaze-as-paddle-input needs a person to actually try it — see
+"Things confirmed vs. still open" below.
 
 Target hardware: Apple Vision Pro (M2). There's no JIT on visionOS, so the build
 always uses the C DRC backend (`NOASM=1`).
@@ -158,6 +166,11 @@ GUI needed:
 - SDL3's GameController backend detects and maps a virtual gamepad
   (`platform:visionOS` in the mapping string) with no extra work.
 - `MAME_NOASM=1` (the forced C DRC backend) is active, per the verbose log.
+- **Real gameplay**: Arkanoid (World v1.0) — a fully byte-verified romset
+  (`-verifyroms` passes clean) — boots past its hardware self-test, shows the
+  Taito title screen, and renders actual Level 1 gameplay (brick layout,
+  paddle, ball) via `-autoboot_script` inserting a coin and starting a game
+  through MAME's Lua console. YM2149 sound initializes without error.
 
 Still open:
 1. **bgfx on Metal**, i.e. `-video bgfx` specifically (as opposed to the
@@ -166,11 +179,17 @@ Still open:
    the same bgfx/Metal code succeeded (see RESEARCH.md milestone 4), but the
    visionOS-specific `CAMetalLayer`-from-UIKit branch in `drawbgfx.cpp` hasn't
    actually been run yet. Try `-video bgfx -bgfx_screen_chains crt-geom`.
-2. **No JIT.** `drc_cache` should log "Using W^X mode" and never actually
-   execute from the cache with `drcbe_c`. Needs an actual driver+ROM to reach
-   that code path (the frontend UI alone doesn't).
-3. **Real gameplay.** Load an actual ROM and confirm input, sound, and the
-   emulation loop run at speed — everything so far is frontend-UI-only.
+2. **No JIT in a driver that actually uses DRC.** Arkanoid's Z80 doesn't use
+   MAME's recompiler at all, so `MAME_NOASM=1` being *set* is confirmed, but
+   `drc_cache` actually logging "Using W^X mode" and never executing from the
+   cache needs a DRC-using driver (MIPS3, PowerPC, SH2/4, ARM7, etc.) plus its
+   ROM.
+3. **Gaze-as-paddle-input.** `visionos/ini/mame.ini` now defaults
+   `dial_device`/`paddle_device`/`trackball_device` to `mouse`, and it boots
+   cleanly with no errors, but nothing on this build machine can synthesize
+   pointer/touch input to confirm gaze motion actually reaches the paddle —
+   `simctl` has no touch/pointer injection, and Accessibility automation to
+   move a real pointer times out. Needs a person physically trying it.
 4. **Device (hardware) launch.** Only the Simulator has been tried. Needs a
    dev-team identity + provisioning profile for `bundle.sh device`.
 5. **visionOS 27.0 runtime instability on this machine.** A freshly-booted
