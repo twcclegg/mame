@@ -173,35 +173,31 @@ when `gfxbank` is 1.
 
 **Verified (on a Mac, with the real `arkanoid` ROM set):**
 - libmame, with the machine-state API, builds for the visionOS simulator, and
-  the app builds with Xcode 27 and runs on the visionOS 26.5 simulator: MAME
-  boots the game, the decoder runs on every frame, and the table-top volume
-  and the original 2D screen come up.
-- The decoder against about 36,000 frames of rounds 1 and 2 (ARKANOID_STATE.md
-  §9–10): bricks, silver, background and shadows, walls, the Vaus in all its
-  forms, ball, capsule letters, enemies, laser shots, player and high score.
+  the app builds with Xcode 27 and runs on the visionOS 26.5 simulator.
+- The decoder against captures of rounds 1–27 (a sweep with
+  `lua/ark3d_sweep.lua`), the attract demo, and bot play that caught B and D
+  capsules: bricks (coloured, silver, gold), each round's background and
+  shadows, walls, enemy hatches, the warp gate, the Vaus in all its forms,
+  balls (Disruption's three too), capsule letters, four enemy types, laser
+  shots, the round banner, spare lives, player and high score.
+  ARKANOID_STATE.md §8–10 has the tables.
+- The scene, by screenshots and recordings in the simulator: every element
+  above as a 3D model or effect, including motion (bricks dropping in,
+  breaking, the Vaus exploding, enemies destroyed, capsules rolling).
 - The paddle loop, driven by `lua/ark3d_bot.lua` through the same analog
   override: about +1 px per count, stable over whole games.
-- 105 unit checks over synthetic data, `-Werror -Wconversion`.
+- The decoder's unit tests (124 checks, synthetic data, `-Werror -Wconversion`).
 
-**Not verified:**
-- Gold bricks, rounds 3–33, DOH, the Disruption (3-ball) state and the B
-  warp: not reached by the bot yet. Unknown codes fall back to the heuristics.
-- Hand tracking and the immersive arena: the simulator has no hands, and
-  nothing here can press buttons in it, so they've only been compiled.
-- Performance and frame pacing on a device.
+**Not verified / deferred** (issues in the private twcclegg/mame-dioramas):
+- DOH, round 33 (#1, lowest priority).
+- On a Vision Pro: hand tracking, gestures, performance, scale (#6).
 
 ## Next steps
 
-- Reach later rounds for captures (gold bricks, DOH): a debug start-round
-  override for the capture scripts, once the round number is found in work
-  RAM.
-- More effects from diffing states: a flash and a sound-synced particle burst
-  when silver bricks are hit (their tiles animate), a shockwave on the
-  Disruption split, a glow trail on the ball, and the warp gate on the right
-  wall ("B" capsule).
-- DOH (round 33, drawn in the tilemap) as a big 3D model.
-- Use the ROM's own graphics as textures, for example capsule letters and
-  enemy sprites as decals. `ark3d_char_pen` plus the palette already decode
-  them.
+- Refine the enemy models against the game's sprites (the cube's colours,
+  the pyramid's animation).
+- More effects from diffing states: a sound-synced burst when silver bricks
+  are hit, a shockwave on the Disruption split, the Vaus's catch (C) glow.
+- Decide whether the floor keeps the ROM's background (see the private
+  repo's licensing issues) or gets its own look.
 - Head-coupled parallax: tilt the table with the user's gaze in the arena.
-- Save states tied to the scene (MAME already supports them for this driver).
