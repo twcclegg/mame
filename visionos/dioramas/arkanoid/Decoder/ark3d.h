@@ -224,6 +224,8 @@ typedef struct {
 
     float gate_open[2];             // the enemy hatches in the top wall (view x
                                     // 40-72 and 152-184): 0 closed .. 1 open
+    int banner_round;               // "ROUND n" on screen: n, else 0
+    int banner_ready;               // "READY" on screen under it
     int in_play;                    // a round's playfield is on screen (not the title,
                                     // high-score or intro screens); bricks are only
                                     // decoded then

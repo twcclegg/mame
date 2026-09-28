@@ -197,6 +197,75 @@ final class EnemyModel: Entity {
     }
 }
 
+// MARK: - banner
+
+/// "ROUND n" and "READY" as extruded text standing on the table, facing the
+/// player; pops in when the game shows its banner and shrinks away after.
+@MainActor
+final class BannerModel: Entity {
+    private let roundText = ModelEntity()
+    private let readyText = ModelEntity()
+    private let holder = Entity()
+    private var shownRound = 0
+    private var show: Float = 0             // 0 hidden .. 1 fully shown
+    private var readyShow: Float = 0
+    private var t: Float = 0
+
+    required init() {
+        super.init()
+        // bright chrome-white reads on every round's background; READY in red
+        roundText.model = ModelComponent(mesh: .generateBox(size: 0.001), materials: [
+            pbr(.white, metallic: 0.7, roughness: 0.12, clearcoat: 1, emissive: .white, emissiveIntensity: 0.55)])
+        readyText.model = ModelComponent(mesh: Self.text("READY", size: 9 * px), materials: [
+            pbr(UIColor(red: 0.95, green: 0.15, blue: 0.1, alpha: 1), metallic: 0.5, roughness: 0.2, clearcoat: 1,
+                emissive: UIColor(red: 0.9, green: 0.1, blue: 0, alpha: 1), emissiveIntensity: 0.7)])
+        center(readyText)
+        // hover above the bricks, leaning back toward the player so it reads
+        // whether the table is seen from above or tilted up
+        holder.orientation = simd_quatf(angle: -.pi / 4, axis: [1, 0, 0])
+        holder.position.y = 16 * px
+        readyText.position.y = -2 * px
+        roundText.position.y = 10 * px
+        for e in [roundText, readyText] {
+            e.components.set(GroundingShadowComponent(castsShadow: true))
+            holder.addChild(e)
+        }
+        addChild(holder)
+        isEnabled = false
+    }
+
+    private static func text(_ s: String, size: Float) -> MeshResource {
+        .generateText(s, extrusionDepth: 2.5 * px, font: .systemFont(ofSize: CGFloat(size), weight: .black),
+                      containerFrame: .zero, alignment: .center, lineBreakMode: .byClipping)
+    }
+
+    /// Centre a text entity on x (text meshes start at their left edge).
+    private func center(_ e: ModelEntity) {
+        guard let b = e.model?.mesh.bounds else { return }
+        e.position.x = -(b.min.x + b.max.x) / 2
+    }
+
+    /// Per frame: `round` is the banner's number (0 = none shown), `ready` whether READY is up.
+    func update(round: Int, ready: Bool, dt: Float) {
+        t += dt
+        if round > 0 && round != shownRound {
+            shownRound = round
+            roundText.model?.mesh = Self.text("ROUND \(round)", size: 14 * px)
+            center(roundText)
+        }
+        show += ((round > 0 ? 1 : 0) - show) * min(1, dt * (round > 0 ? 9 : 6))
+        readyShow += ((ready ? 1 : 0) - readyShow) * min(1, dt * 9)
+        isEnabled = show > 0.02
+        guard isEnabled else { return }
+        // a little overshoot on the way in, then a gentle bob
+        let pop = show < 0.98 ? show * (1 + 0.25 * sin(show * .pi)) : 1
+        scale = SIMD3(repeating: max(0.01, pop))
+        holder.position.y = (16 + 1.5 * sin(t * 2.5)) * px
+        readyText.scale = SIMD3(repeating: max(0.01, readyShow))
+        readyText.isEnabled = readyShow > 0.02
+    }
+}
+
 // MARK: - ball
 
 /// The energy ball: bright core, its own light, and a short fading trail.

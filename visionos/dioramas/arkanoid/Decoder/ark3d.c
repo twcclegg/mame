@@ -200,7 +200,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     fill(cal->sprite_kind, 0x1b8, 0x1b8, ARK3D_KIND_BALL);
     fill(cal->sprite_kind, 0x1bd, 0x1bd, ARK3D_KIND_LASER);         // a shot, rising 5 px a frame
     fill(cal->sprite_kind, 0x1be, 0x1c9, ARK3D_KIND_EXPLOSION);     // an enemy destroyed
-    fill(cal->sprite_kind, 0x1cb, 0x1d3, ARK3D_KIND_TEXT);          // "ROUND n" (1cc-1d3 its digits) / "READY"
+    fill(cal->sprite_kind, 0x1ca, 0x1d3, ARK3D_KIND_TEXT);          // "ROUND n": its digits 0-9 (see banner_round)
     fill(cal->sprite_kind, 0x1d4, 0x1e0, ARK3D_KIND_TEXT);
     fill(cal->sprite_kind, 0x400, 0x7ff, ARK3D_KIND_OTHER);         // bank 1: the intro story
 
@@ -688,6 +688,35 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         st->vaus_y = (y0 + y1) * 0.5f;
         st->vaus_w = x1 - x0;
         st->vaus_h = y1 - y0;
+    }
+
+    // ---- the round banner.  [game] "ROUND" is sprites 1d8-1da at x 80-112,
+    // y 176, then the round number's digits (1ca + digit) at x 128 (units)
+    // and x 120 (tens, from round 10); "READY" (1de-1e0) follows below.
+    // Only in bank 0: the intro story reuses the codes.
+    if ((in->gfxbank & 1) == 0)
+    {
+        int round_word = 0, units = -1, tens = 0, ready = 0;
+        for (int i = 0; i < ARK3D_NUM_SPRITES; i++)
+        {
+            const sprite_entry *e = &spr[i];
+            if (!e->used)
+                continue;
+            if (e->y == 176 && e->code == 0x1d8)
+                round_word = 1;
+            else if (e->y == 176 && e->code >= 0x1ca && e->code <= 0x1d3)
+            {
+                if (e->x == 128) units = e->code - 0x1ca;
+                else if (e->x == 120) tens = e->code - 0x1ca;
+            }
+            else if (e->y == 192 && e->code >= 0x1de && e->code <= 0x1e0)
+                ready = 1;
+        }
+        if (round_word && units >= 0)
+        {
+            st->banner_round = tens * 10 + units;
+            st->banner_ready = ready;
+        }
     }
 
     // everything else

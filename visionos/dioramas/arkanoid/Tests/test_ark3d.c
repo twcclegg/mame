@@ -229,6 +229,8 @@ static void test_default_calibration(void)
     put_sprite(5, 40, 120, 0x193, 0x13);            // an L capsule, rotation frame 3
     put_sprite(6, 80, 150, 0x1b8, 0x0c);            // ball
     put_sprite(7, 80, 176, 0x1d8, 0x00);            // "ROUND" text
+    put_sprite(8, 120, 176, 0x1cb, 0x00);           // 1
+    put_sprite(9, 128, 176, 0x1d0, 0x00);           // 6
 
     ark3d_input in;
     memset(&in, 0, sizeof(in));
@@ -245,6 +247,8 @@ static void test_default_calibration(void)
     CHECK_EQ(st.object_count, 1);                   // the capsule; shadows and text aren't objects
     CHECK_EQ(st.objects[0].kind, ARK3D_KIND_CAPSULE);
     CHECK_EQ(st.objects[0].capsule, ARK3D_CAPSULE_L);
+    CHECK_EQ(st.banner_round, 16);
+    CHECK_EQ(st.banner_ready, 0);
     // the synthetic walls aren't the game's wall tiles, so no round is on screen
     CHECK_EQ(st.in_play, 0);
 

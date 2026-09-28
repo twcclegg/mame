@@ -232,7 +232,7 @@ pens are all black, offset +4,+4 for the Vaus and +2,+2 for capsules)
 | `1b8` | the ball |
 | `1bd` | a laser shot, rising 5 px a frame |
 | `1be-1c9` | an enemy destroyed |
-| `1cb-1d3`, `1d4-1e0` | "ROUND n" (`1cc`-`1d3` are its digits, at x 128, y 176) and "READY" |
+| `1d8-1da`, `1ca-1d3`, `1de-1e0` | the round banner (`banner_round`, `banner_ready`): "ROUND" at x 80-112, y 176; the number's digits as `1ca` + digit, units at x 128 and tens at x 120 (from round 10); "READY" at y 192, about 30 frames later |
 
 **Paddle.** The spinner moves the Vaus about +1 px per count (to the right),
 measured by the bot through the same analog override the app uses.

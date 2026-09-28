@@ -60,6 +60,7 @@ final class PlayfieldScene {
     private var ballPos: [SIMD2<Float>] = []
     private var capsules: [ModelEntity] = []
     private var lifeIcons: [VausModel] = []         // spare lives, bottom left, as the game shows them
+    private let banner = BannerModel()              // "ROUND n" / "READY"
     private var enemies: [EnemyModel] = []
     private var lasers: [ModelEntity] = []
     private var smoothed: [ObjectIdentifier: SIMD2<Float>] = [:]
@@ -241,6 +242,9 @@ final class PlayfieldScene {
             field.addChild(icon)
             lifeIcons.append(icon)
         }
+
+        banner.position = local(112, 170, 0)
+        field.addChild(banner)
 
         for _ in 0..<Int(ARK3D_MAX_BALLS) {
             let b = BallModel()
@@ -544,6 +548,8 @@ final class PlayfieldScene {
             for pivot in gateDoors[g] { pivot.scale = [closed, 1, 1] }
             gateGlows[g].isEnabled = gateShown[g] > 0.05
         }
+
+        banner.update(round: Int(s.banner_round), ready: s.banner_ready != 0, dt: dt)
 
         let spare = Int(s.spare_lives)
         if spare >= 0 {

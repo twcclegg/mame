@@ -195,6 +195,8 @@ int main(int argc, char **argv)
             for (int i = 0; i < st.object_count; i++)
                 printf(" %s%s", ark3d_kind_name(st.objects[i].kind),
                        st.objects[i].kind == ARK3D_KIND_CAPSULE ? ark3d_capsule_name(st.objects[i].capsule) : "");
+            if (st.banner_round)
+                printf(" [ROUND %d%s]", st.banner_round, st.banner_ready ? " READY" : "");
             printf(" lives %d score %d hi %d\n", st.spare_lives, st.score, st.high_score);
         }
     }
