@@ -197,6 +197,81 @@ final class EnemyModel: Entity {
     }
 }
 
+// MARK: - capsules
+
+/// A power-up capsule: a glossy pill in the letter's colour with the letter
+/// raised on it, rolling toward the player as it falls, as in the game.
+/// Slightly bigger than the game's 16x8 so the letter reads at table-top scale.
+@MainActor
+final class CapsuleModel: Entity {
+    static let colors: [UIColor] = [
+        .gray,                                                   // unknown
+        UIColor(red: 1, green: 0.55, blue: 0, alpha: 1),         // S slow
+        UIColor(red: 0.1, green: 0.8, blue: 0.2, alpha: 1),      // C catch
+        UIColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1),      // L laser
+        UIColor(red: 0.1, green: 0.3, blue: 1, alpha: 1),        // E enlarge
+        UIColor(red: 0, green: 0.8, blue: 1, alpha: 1),          // D disruption
+        UIColor(red: 1, green: 0.35, blue: 0.8, alpha: 1),       // B break
+        UIColor(white: 0.65, alpha: 1),                          // P player
+    ]
+    static let radius: Float = 4.5          // px
+    private static let length: Float = 12   // px, the straight part
+    private let roller = Entity()
+    private let parts: [ModelEntity]
+    private let letters: [ModelEntity]      // two, opposite each other, so one is up more often
+    private var type = -1
+
+    required init() {
+        let r = Self.radius * px, l = Self.length * px
+        let tube = ModelEntity(mesh: .generateCylinder(height: l, radius: r))
+        tube.orientation = alongX
+        let caps = [ModelEntity(mesh: .generateSphere(radius: r)), ModelEntity(mesh: .generateSphere(radius: r))]
+        caps[0].position.x = -l / 2
+        caps[1].position.x = l / 2
+        parts = [tube] + caps
+        letters = [ModelEntity(), ModelEntity()]
+        super.init()
+        for p in parts {
+            p.components.set(GroundingShadowComponent(castsShadow: true))
+            roller.addChild(p)
+        }
+        let white = pbr(.white, metallic: 0.2, roughness: 0.25, emissive: .white, emissiveIntensity: 0.35)
+        for (i, letter) in letters.enumerated() {
+            letter.model = ModelComponent(mesh: .generateBox(size: 0.001), materials: [white])
+            // lying on the surface, facing out: 0 on top, 1 underneath
+            let holder = Entity()
+            holder.orientation = simd_quatf(angle: i == 0 ? 0 : .pi, axis: [1, 0, 0])
+            letter.orientation = simd_quatf(angle: -.pi / 2, axis: [1, 0, 0])
+            letter.position.y = r - 0.4 * px
+            holder.addChild(letter)
+            roller.addChild(holder)
+        }
+        addChild(roller)
+    }
+
+    func show(type: Int) {
+        guard type != self.type else { return }
+        self.type = type
+        let body = pbr(Self.colors[max(0, min(type, Self.colors.count - 1))], metallic: 0.2, roughness: 0.18, clearcoat: 1)
+        for p in parts { p.model?.materials = [body] }
+        let name = String(cString: ark3d_capsule_name(Int32(type)))
+        let mesh = MeshResource.generateText(name, extrusionDepth: 1.2 * px, font: .systemFont(ofSize: CGFloat(8 * px), weight: .black),
+                                             containerFrame: .zero, alignment: .center, lineBreakMode: .byClipping)
+        for letter in letters {
+            letter.model?.mesh = mesh
+            let b = mesh.bounds
+            // centre on the pill (the text lies in x/z after its rotation)
+            letter.position.x = -(b.min.x + b.max.x) / 2
+            letter.position.z = (b.min.y + b.max.y) / 2
+        }
+    }
+
+    /// Roll toward the player (about x); `t` in seconds.
+    func roll(t: Float) {
+        roller.orientation = simd_quatf(angle: -t * 5, axis: [1, 0, 0])
+    }
+}
+
 // MARK: - banner
 
 /// "ROUND n" and "READY" as extruded text standing on the table, facing the

@@ -1,9 +1,9 @@
 // license:BSD-3-Clause
 //
 // RomArt - the game's own pixels, from the ROM's graphics (gfx1) and palette
-// (proms), for textures: the round's background pattern for the floor, and
-// sprites (capsules with their letters) as decals.  The decoder tells which
-// tiles and sprites are what; this turns codes into images.
+// (proms), for textures: the round's background pattern for the floor.  The
+// decoder tells which tiles are what; this turns codes into images.  (All
+// the objects are 3D models; the floor texture is optional and may go.)
 //
 // Built by whichever source supplies game state (MAME or a replay) once per
 // game, then read-only, so it's shared across threads.
@@ -38,12 +38,6 @@ final class RomArt: @unchecked Sendable {
     /// Pen at view pixel (u, v) of an 8x8 background tile (the game is ROT90:
     /// view x runs down the character's rows, view y along its columns).
     func tilePen(code: Int, u: Int, v: Int) -> Int { pen(code, v, 7 - u) }
-
-    /// Pen at view pixel (u 0-15, v 0-7) of a 16x8 sprite (as ark3d.c lays it out).
-    func spritePen(code: Int, u: Int, v: Int) -> Int {
-        let off = 15 - u
-        return pen(2 * code + (off >= 8 ? 1 : 0), v, off & 7)
-    }
 
     // MARK: - images
 
@@ -100,28 +94,6 @@ final class RomArt: @unchecked Sendable {
             }
         }
         return Self.image(pixels, width: w * scale, height: h * scale)
-    }
-
-    /// A 16x8 sprite scaled up with hard pixel edges.  Pen 0 is transparent,
-    /// or `background` if given.
-    func spriteImage(code: Int, color: Int, scale: Int, background: SIMD3<UInt8>? = nil) -> CGImage? {
-        let w = 16 * scale, h = 8 * scale
-        var pixels = [UInt8](repeating: 0, count: w * h * 4)
-        for v in 0..<8 {
-            for u in 0..<16 {
-                let pen = spritePen(code: code, u: u, v: v)
-                guard pen != 0 || background != nil else { continue }
-                let p = pen != 0 ? rgb(color: color, pen: pen) : background!
-                for dy in 0..<scale {
-                    var o = ((v * scale + dy) * w + u * scale) * 4
-                    for _ in 0..<scale {
-                        pixels[o] = p.x; pixels[o + 1] = p.y; pixels[o + 2] = p.z; pixels[o + 3] = 255
-                        o += 4
-                    }
-                }
-            }
-        }
-        return Self.image(pixels, width: w, height: h)
     }
 
     private static func image(_ pixels: [UInt8], width: Int, height: Int) -> CGImage? {

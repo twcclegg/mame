@@ -32,9 +32,6 @@ final class PlayfieldScene {
     private let field = Entity()                    // everything in view-pixel placement
     private let floor = ModelEntity()
     private var floorKey: [UInt32] = []             // background tiles the floor texture shows
-    private var textures: [String: TextureResource] = [:]
-    private var texturesLoading: Set<String> = []
-    private var spriteMaterials: [String: RealityKit.Material] = [:]
     private var screen: ScreenUpdater?
 
     private let store: GameStateStore
@@ -58,7 +55,9 @@ final class PlayfieldScene {
     private var vausAppear: Float = 1               // 0-1 while materialising
     private var balls: [BallModel] = []
     private var ballPos: [SIMD2<Float>] = []
-    private var capsules: [ModelEntity] = []
+    private var capsules: [CapsuleModel] = []
+    /// Where enemies were destroyed lately, so each gets one burst.
+    private var recentBursts: [(position: SIMD2<Float>, age: Float)] = []
     private var lifeIcons: [VausModel] = []         // spare lives, bottom left, as the game shows them
     private let banner = BannerModel()              // "ROUND n" / "READY"
     private var enemies: [EnemyModel] = []
@@ -255,13 +254,8 @@ final class PlayfieldScene {
             ballPos.append(.zero)
         }
 
-        // capsules: a pill that shows the game's own capsule sprite on top; the
-        // game animates it through 8 frames, so the letter rolls as it falls
-        // a bit bigger than the game's (16x8) so the letter reads at table-top scale
-        let pill = MeshResource.generateBox(width: 20 * s, height: 7 * s, depth: 9.5 * s, cornerRadius: 3.5 * s)
         for _ in 0..<4 {
-            let c = ModelEntity(mesh: pill, materials: [SimpleMaterial()])
-            c.components.set(GroundingShadowComponent(castsShadow: true))
+            let c = CapsuleModel()
             c.isEnabled = false
             field.addChild(c)
             capsules.append(c)
@@ -340,28 +334,6 @@ final class PlayfieldScene {
     /// Material kind for a silver brick the game is animating (hit, or the
     /// shimmer at the start of a round): its tiles run through 170-179.
     private static let silverFlash = 255
-
-    private static let capsuleColors: [UIColor] = [
-        .gray,                                                   // unknown
-        UIColor(red: 1, green: 0.55, blue: 0, alpha: 1),         // S slow
-        UIColor(red: 0.1, green: 0.8, blue: 0.2, alpha: 1),      // C catch
-        UIColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1),      // L laser
-        UIColor(red: 0.1, green: 0.3, blue: 1, alpha: 1),        // E enlarge
-        UIColor(red: 0, green: 0.8, blue: 1, alpha: 1),          // D disruption
-        UIColor(red: 1, green: 0.35, blue: 0.8, alpha: 1),       // B break
-        UIColor(white: 0.65, alpha: 1),                          // P player
-    ]
-    private var capsuleMaterials: [Int: RealityKit.Material] = [:]
-    private func capsuleMaterial(_ type: Int) -> RealityKit.Material {
-        if let m = capsuleMaterials[type] { return m }
-        var m = PhysicallyBasedMaterial()
-        m.baseColor = .init(tint: Self.capsuleColors[max(0, min(type, Self.capsuleColors.count - 1))])
-        m.metallic = .init(floatLiteral: 0.3)
-        m.roughness = .init(floatLiteral: 0.25)
-        m.clearcoat = .init(floatLiteral: 1)
-        capsuleMaterials[type] = m
-        return m
-    }
 
     // MARK: - per frame
 
@@ -459,34 +431,6 @@ final class PlayfieldScene {
             m.metallic = .init(floatLiteral: 0)
             self?.floor.model?.materials = [m]
         }
-    }
-
-    /// A sprite as a texture on an otherwise plain material, loaded on first
-    /// use (nil until then); pen 0 becomes the sprite's outline colour.
-    private func spriteMaterial(code: Int, color: Int) -> RealityKit.Material? {
-        let key = "s\(code)/\(color)"
-        if let m = spriteMaterials[key] { return m }
-        if let texture = textures[key] {
-            var m = PhysicallyBasedMaterial()
-            m.baseColor = .init(tint: .white, texture: .init(texture))
-            // the sprite glows a little, so the letter stays legible in any light
-            m.emissiveColor = .init(color: .white, texture: .init(texture))
-            m.emissiveIntensity = 0.2
-            m.roughness = .init(floatLiteral: 0.45)
-            m.clearcoat = .init(floatLiteral: 0.25)
-            spriteMaterials[key] = m
-            return m
-        }
-        guard !texturesLoading.contains(key), let art = store.art,
-              let image = art.spriteImage(code: code, color: color, scale: 8, background: art.rgb(color: color, pen: 1)) else { return nil }
-        texturesLoading.insert(key)
-        Task { @MainActor [weak self] in
-            if let texture = try? await TextureResource(image: image, options: .init(semantic: .color)) {
-                self?.textures[key] = texture
-            }
-            self?.texturesLoading.remove(key)
-        }
-        return nil
     }
 
     private func dropBricks(dt: Float) {
@@ -600,23 +544,38 @@ final class PlayfieldScene {
         }
         for j in 0..<balls.count where !used[j] { balls[j].place(.zero, visible: false) }
 
-        // capsules, enemies, lasers
+        // capsules, enemies, lasers, enemy explosions
+        for i in recentBursts.indices { recentBursts[i].age += dt }
+        recentBursts.removeAll { $0.age > 0.8 }
         var ci = 0, ei = 0, li = 0
         for i in 0..<Int(s.object_count) {
             guard let o = ark3d_object_at(state, Int32(i))?.pointee else { continue }
             switch Int(o.kind) {
             case Int(ARK3D_KIND_CAPSULE.rawValue) where ci < capsules.count:
                 let c = capsules[ci]; ci += 1
-                place(c, o, height: 3.5 * Self.metresPerPixel, dt: dt)
-                // a gentle bob, so falling capsules read as objects above the floor
-                c.position.y += (1 + sin(spin * 6 + Float(ci))) * 0.6 * Self.metresPerPixel
-                c.model?.materials = [spriteMaterial(code: Int(o.code), color: Int(o.color))
-                                      ?? capsuleMaterial(Int(o.capsule))]
+                place(c, o, height: CapsuleModel.radius * Self.metresPerPixel, dt: dt)
+                c.show(type: Int(o.capsule))
+                c.roll(t: spin + Float(ci))
             case Int(ARK3D_KIND_ENEMY.rawValue) where ei < enemies.count:
                 let e = enemies[ei]; ei += 1
                 e.show(type: Int(ark3d_enemy_type(o.code)))
                 place(e, o, height: 0, dt: dt)
                 e.animate(t: spin, seed: Float(ei) * 1.7)
+            case Int(ARK3D_KIND_EXPLOSION.rawValue):
+                // an enemy destroyed: one burst per explosion
+                let p = SIMD2(o.x, o.y)
+                if !recentBursts.contains(where: { simd_length($0.position - p) < 16 }) {
+                    recentBursts.append((p, 0))
+                    let color = UIColor(red: CGFloat(o.rgb.0) / 255, green: CGFloat(o.rgb.1) / 255, blue: CGFloat(o.rgb.2) / 255, alpha: 1)
+                    let at = local(o.x, o.y, 8 * Self.metresPerPixel)
+                    flash(at: at, color: .white, size: 26, duration: 0.3)
+                    Effects.sparks(in: field, at: at, color: color, count: 40, scale: 1.4)
+                    var m = PhysicallyBasedMaterial()
+                    m.baseColor = .init(tint: color)
+                    m.emissiveColor = .init(color: color)
+                    m.emissiveIntensity = 0.8
+                    throwDebris(from: at, material: m, count: 8, speed: 0.45)
+                }
             case Int(ARK3D_KIND_LASER.rawValue) where li < lasers.count:
                 let l = lasers[li]; li += 1
                 place(l, o, height: 0.008, dt: dt)
