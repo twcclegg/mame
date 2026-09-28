@@ -66,12 +66,26 @@ struct ControlPanel: View {
         }
         .onAppear {
             model.refresh()
-            // launch arguments (e.g. `xcrun simctl launch booted <id> arkanoid`) start directly
-            let args = MAMEEngine.stripSystemArguments(Array(CommandLine.arguments.dropFirst()))
-            if let first = args.first, !model.running {
-                model.selected = first
-                model.launch(extraArguments: Array(args.dropFirst()))
-                openWindow(id: ArkanoidDioramaApp.volumeID)
+            // development: DIORAMA_CLOSEUP=1 opens the arena right in front of
+            // the viewer (see PlayfieldView), e.g. for simulator screenshots
+            let closeup = ProcessInfo.processInfo.environment["DIORAMA_CLOSEUP"] == "1"
+            if model.startReplayIfRequested() {
+                if !closeup { openWindow(id: ArkanoidDioramaApp.volumeID) }
+            } else {
+                // launch arguments (e.g. `xcrun simctl launch booted <id> arkanoid`) start directly
+                let args = MAMEEngine.stripSystemArguments(Array(CommandLine.arguments.dropFirst()))
+                if let first = args.first, !model.running {
+                    model.selected = first
+                    model.launch(extraArguments: Array(args.dropFirst()))
+                    if !closeup { openWindow(id: ArkanoidDioramaApp.volumeID) }
+                }
+            }
+            if closeup {
+                Task {
+                    if case .opened = await openImmersiveSpace(id: ArkanoidDioramaApp.arenaID) {
+                        model.arenaOpen = true
+                    }
+                }
             }
         }
     }

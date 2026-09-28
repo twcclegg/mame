@@ -28,6 +28,13 @@ final class GameStateStore: @unchecked Sendable {
 
     init() { state.initialize(to: ark3d_state()) }
 
+    private var _art: RomArt?
+    /// The game's graphics, for textures; set by the state source once per game.
+    var art: RomArt? {
+        get { lock.lock(); defer { lock.unlock() }; return _art }
+        set { lock.lock(); _art = newValue; lock.unlock() }
+    }
+
     func publish(_ s: UnsafePointer<ark3d_state>) {
         lock.lock()
         state.update(from: s, count: 1)
@@ -147,6 +154,8 @@ final class ArkanoidStateReader: @unchecked Sendable {
         if graphics.pointee.valid == 0 {
             log.warning("gfx1/proms not usable: decoding without graphics (much less accurate)")
         }
+        store.art = RomArt(gfx: haveGfx ? gfx.base?.assumingMemoryBound(to: UInt8.self) : nil,
+                           gfxBytes: haveGfx ? gfx.bytes : 0, graphics: graphics)
         for (i, name) in ["m_gfxbank", "m_palettebank", "m_flip_screen_x", "m_flip_screen_y"].enumerated() {
             var block = myosd_memory_block()
             bankItems[i] = myosd_get_state_item(":", name, &block) == 0 ? block : nil

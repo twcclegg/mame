@@ -99,6 +99,16 @@ typedef enum {
     ARK3D_CAPSULE_COUNT
 } ark3d_capsule;
 
+// enemy types, by their sprite frames (ark3d_enemy_type)
+typedef enum {
+    ARK3D_ENEMY_UNKNOWN = 0,
+    ARK3D_ENEMY_MOLECULE,       // three balls
+    ARK3D_ENEMY_CUBE,
+    ARK3D_ENEMY_SPHERE,
+    ARK3D_ENEMY_PYRAMID,
+    ARK3D_ENEMY_CONE
+} ark3d_enemy;
+
 // exact tables by code.  ark3d_default_calibration fills in the codes
 // verified against captures of the real game (see ARKANOID_STATE.md); a
 // calibration file can add to or override them.  UNKNOWN entries fall
@@ -246,6 +256,7 @@ int ark3d_decode(const ark3d_input *input, const ark3d_layout *layout,
 void ark3d_raw_to_view(int raw_x, int raw_y, int *view_x, int *view_y);
 void ark3d_sprite_view_rect(const uint8_t *sprite4, int *x, int *y);   // 16x8 at (x,y)
 
+int ark3d_enemy_type(uint16_t sprite_code);        // ark3d_enemy
 const char *ark3d_kind_name(int kind);
 const char *ark3d_capsule_name(int capsule);
 
@@ -257,6 +268,14 @@ static inline const ark3d_brick *ark3d_brick_at(const ark3d_state *s, int row, i
 static inline const ark3d_object *ark3d_ball_at(const ark3d_state *s, int i)
 {
     return (i >= 0 && i < s->ball_count) ? &s->balls[i] : NULL;
+}
+static inline uint16_t ark3d_tile_code_at(const ark3d_state *s, int row, int col)
+{
+    return (row >= 0 && row < ARK3D_VIEW_ROWS && col >= 0 && col < ARK3D_VIEW_COLS) ? s->tile_code[row][col] : 0;
+}
+static inline uint8_t ark3d_tile_color_at(const ark3d_state *s, int row, int col)
+{
+    return (row >= 0 && row < ARK3D_VIEW_ROWS && col >= 0 && col < ARK3D_VIEW_COLS) ? s->tile_color[row][col] : 0;
 }
 static inline const ark3d_object *ark3d_object_at(const ark3d_state *s, int i)
 {

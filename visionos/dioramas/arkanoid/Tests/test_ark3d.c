@@ -262,6 +262,13 @@ static void test_default_calibration(void)
     CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
     CHECK_EQ(st.in_play, 1);
     CHECK_EQ(st.bricks[4][0].kind, ARK3D_KIND_BRICK_SILVER);
+    // the game's wipe blanks the playfield column by column from the right
+    put_tile(27, 20, 0x020, 0);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.in_play, 0);
+    CHECK_EQ(st.brick_count, 0);
+    put_tile(27, 20, 0x120, 0x1c);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
     CHECK_EQ(st.bricks[5][1].kind, ARK3D_KIND_BRICK);
     CHECK_EQ(st.vaus_phase, ARK3D_VAUS_EXPLODING);
 }

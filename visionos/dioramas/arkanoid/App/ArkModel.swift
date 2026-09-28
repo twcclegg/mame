@@ -32,6 +32,21 @@ final class ArkModel {
         MAMEEngine.shared.renderSize = (width: 768, height: 896)
     }
 
+    /// Development: playing a capture instead of running MAME (ReplayPlayer).
+    private(set) var replaying = false
+    private var replay: ReplayPlayer?
+
+    /// Starts a replay if DIORAMA_REPLAY is set.  Returns whether it did.
+    func startReplayIfRequested() -> Bool {
+        guard !running, !replaying, let options = ReplayPlayer.optionsFromEnvironment(),
+              let player = ReplayPlayer(url: options.url) else { return false }
+        replay = player
+        replaying = true
+        showOriginalScreen = false              // no MAME, no 2D picture
+        player.start(store: ArkanoidStateReader.shared.store, options: options)
+        return true
+    }
+
     func refresh() {
         let dir = MAMEEngine.prepareDocuments().appendingPathComponent("roms")
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []

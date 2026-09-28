@@ -17,7 +17,7 @@ import UIKit
 
 @MainActor
 final class PlayfieldScene {
-    static let metresPerPixel: Float = 0.0025       // 224 px -> 0.56 m wide
+    nonisolated static let metresPerPixel: Float = 0.0025   // 224 px -> 0.56 m wide
     static let brickHeight: Float = 0.012
     static let wallHeight: Float = 0.03
 
@@ -27,6 +27,10 @@ final class PlayfieldScene {
     /// Invisible slab over the field that takes the pinch-drag gesture.
     let touchSurface = Entity()
     private let field = Entity()                    // everything in view-pixel placement
+    private let floor = ModelEntity()
+    private var floorKey: [UInt32] = []             // background tiles the floor texture shows
+    private var textures: [String: TextureResource] = [:]
+    private var texturesLoading: Set<String> = []
     private var screen: ScreenUpdater?
 
     private let store: GameStateStore
@@ -38,20 +42,25 @@ final class PlayfieldScene {
     private var bricks: [[ModelEntity]] = []
     private var brickShown: [[UInt8]] = []          // kind shown per cell, for break effects
     private var brickColor: [[UInt32]] = []
-    private let vaus = Entity()
-    private let vausBody = ModelEntity()
-    private let vausCaps = [ModelEntity(), ModelEntity()]
+    private let vaus = VausModel()
     private var vausX: Float = 112
     private var vausWidth: Float = 32
-    private var balls: [ModelEntity] = []
+    private var vausPhase = Int32(ARK3D_VAUS_NONE.rawValue)
+    private var vausAppear: Float = 1               // 0-1 while materialising
+    private var balls: [BallModel] = []
     private var ballPos: [SIMD2<Float>] = []
     private var capsules: [ModelEntity] = []
-    private var enemies: [ModelEntity] = []
+    private var enemies: [EnemyModel] = []
     private var lasers: [ModelEntity] = []
     private var smoothed: [ObjectIdentifier: SIMD2<Float>] = [:]
     private var debris: [(entity: ModelEntity, velocity: SIMD3<Float>, life: Float)] = []
     private var materials: [UInt32: RealityKit.Material] = [:]
     private var spin: Float = 0
+    /// The previous decoded frame had a round on screen.  Bricks only shatter
+    /// between two such frames: the game wipes and redraws the playfield after
+    /// a lost life and between rounds, and that isn't bricks breaking.
+    private var lastInPlay = false
+    private var outOfPlay: Float = 0
 
     init(store: GameStateStore, frames: FrameStore) {
         self.store = store
@@ -92,8 +101,8 @@ final class PlayfieldScene {
         floorMat.baseColor = .init(tint: UIColor(red: 0.05, green: 0.07, blue: 0.16, alpha: 1))
         floorMat.roughness = .init(floatLiteral: 0.6)
         floorMat.metallic = .init(floatLiteral: 0.1)
-        let floor = ModelEntity(mesh: .generateBox(width: (right - left) * s, height: 0.004, depth: depth),
-                                materials: [floorMat])
+        floor.model = ModelComponent(mesh: .generateBox(width: (right - left) * s, height: 0.004, depth: depth),
+                                     materials: [floorMat])
         floor.position = local((left + right) / 2, (top + bottom) / 2, -0.002)
         field.addChild(floor)
 
@@ -137,6 +146,7 @@ final class PlayfieldScene {
             var row: [ModelEntity] = []
             for c in 0..<cols {
                 let e = ModelEntity(mesh: brickMesh, materials: [SimpleMaterial()])
+                e.components.set(GroundingShadowComponent(castsShadow: true))
                 let x = Float(layout.grid_left) + (Float(c) + 0.5) * Float(layout.brick_w)
                 let y = Float(layout.grid_top) + (Float(r) + 0.5) * Float(layout.brick_h)
                 e.position = local(x, y, Self.brickHeight / 2)
@@ -149,51 +159,31 @@ final class PlayfieldScene {
             brickColor.append([UInt32](repeating: 0, count: cols))
         }
 
-        // Vaus: a metallic capsule body with red end caps
-        var bodyMat = PhysicallyBasedMaterial()
-        bodyMat.baseColor = .init(tint: UIColor(white: 0.85, alpha: 1))
-        bodyMat.metallic = .init(floatLiteral: 1)
-        bodyMat.roughness = .init(floatLiteral: 0.18)
-        vausBody.model = ModelComponent(mesh: .generateBox(width: 1, height: 0.012, depth: 6 * s, cornerRadius: 0.004), materials: [bodyMat])
-        vaus.addChild(vausBody)
-        var capMat = PhysicallyBasedMaterial()
-        capMat.baseColor = .init(tint: UIColor(red: 0.85, green: 0.1, blue: 0.1, alpha: 1))
-        capMat.metallic = .init(floatLiteral: 0.6)
-        capMat.roughness = .init(floatLiteral: 0.25)
-        capMat.emissiveColor = .init(color: UIColor(red: 0.6, green: 0, blue: 0, alpha: 1))
-        capMat.emissiveIntensity = 0.4
-        for cap in vausCaps {
-            cap.model = ModelComponent(mesh: .generateBox(width: 6 * s, height: 0.014, depth: 7 * s, cornerRadius: 0.005), materials: [capMat])
-            vaus.addChild(cap)
-        }
         vaus.isEnabled = false
         field.addChild(vaus)
 
-        // balls: glowing, each with its own little light
-        var ballMat = PhysicallyBasedMaterial()
-        ballMat.baseColor = .init(tint: .white)
-        ballMat.emissiveColor = .init(color: UIColor(red: 0.8, green: 0.9, blue: 1, alpha: 1))
-        ballMat.emissiveIntensity = 2
         for _ in 0..<Int(ARK3D_MAX_BALLS) {
-            let b = ModelEntity(mesh: .generateSphere(radius: 2.5 * s), materials: [ballMat])
-            b.components.set(PointLightComponent(color: UIColor(red: 0.7, green: 0.85, blue: 1, alpha: 1), intensity: 300, attenuationRadius: 0.15))
+            let b = BallModel()
             b.isEnabled = false
             field.addChild(b)
+            b.attachTrail(to: field)
             balls.append(b)
             ballPos.append(.zero)
         }
 
-        // capsules: a cylinder lying across the field, letter on top
+        // capsules: a pill that shows the game's own capsule sprite on top; the
+        // game animates it through 8 frames, so the letter rolls as it falls
+        let pill = MeshResource.generateBox(width: 15 * s, height: 6 * s, depth: 7 * s, cornerRadius: 3 * s)
         for _ in 0..<4 {
-            let c = ModelEntity(mesh: .generateCylinder(height: 14 * s, radius: 3.5 * s), materials: [SimpleMaterial()])
-            c.orientation = simd_quatf(angle: .pi / 2, axis: [0, 0, 1])
+            let c = ModelEntity(mesh: pill, materials: [SimpleMaterial()])
+            c.components.set(GroundingShadowComponent(castsShadow: true))
             c.isEnabled = false
             field.addChild(c)
             capsules.append(c)
         }
 
         for _ in 0..<6 {
-            let e = ModelEntity(mesh: .generateSphere(radius: 6 * s), materials: [SimpleMaterial()])
+            let e = EnemyModel()
             e.isEnabled = false
             field.addChild(e)
             enemies.append(e)
@@ -231,13 +221,27 @@ final class PlayfieldScene {
         let color = UIColor(red: CGFloat(rgb.0) / 255, green: CGFloat(rgb.1) / 255, blue: CGFloat(rgb.2) / 255, alpha: 1)
         switch Int(kind) {
         case Int(ARK3D_KIND_BRICK_SILVER.rawValue):
-            m.baseColor = .init(tint: UIColor(white: 0.8, alpha: 1))
+            // polished: bright, glossy, lifted a little so it reads as silver
+            // whatever the room it reflects
+            m.baseColor = .init(tint: UIColor(white: 0.97, alpha: 1))
             m.metallic = .init(floatLiteral: 1)
-            m.roughness = .init(floatLiteral: 0.15)
+            m.roughness = .init(floatLiteral: 0.06)
+            m.clearcoat = .init(floatLiteral: 1)
+            m.emissiveColor = .init(color: UIColor(white: 0.55, alpha: 1))
+            m.emissiveIntensity = 0.25
+        case Self.silverFlash:
+            m.baseColor = .init(tint: .white)
+            m.metallic = .init(floatLiteral: 1)
+            m.roughness = .init(floatLiteral: 0.05)
+            m.emissiveColor = .init(color: .white)
+            m.emissiveIntensity = 1.5
         case Int(ARK3D_KIND_BRICK_GOLD.rawValue):
-            m.baseColor = .init(tint: UIColor(red: 1, green: 0.78, blue: 0.3, alpha: 1))
+            m.baseColor = .init(tint: UIColor(red: 1, green: 0.8, blue: 0.35, alpha: 1))
             m.metallic = .init(floatLiteral: 1)
-            m.roughness = .init(floatLiteral: 0.2)
+            m.roughness = .init(floatLiteral: 0.1)
+            m.clearcoat = .init(floatLiteral: 1)
+            m.emissiveColor = .init(color: UIColor(red: 0.6, green: 0.4, blue: 0.05, alpha: 1))
+            m.emissiveIntensity = 0.25
         default:
             m.baseColor = .init(tint: color)
             m.metallic = .init(floatLiteral: 0)
@@ -247,6 +251,10 @@ final class PlayfieldScene {
         materials[key] = m
         return m
     }
+
+    /// Material kind for a silver brick the game is animating (hit, or the
+    /// shimmer at the start of a round): its tiles run through 170-179.
+    private static let silverFlash = 255
 
     private static let capsuleColors: [UIColor] = [
         .gray,                                                   // unknown
@@ -283,9 +291,14 @@ final class PlayfieldScene {
             serial = newSerial
             hasState = true
             applyBricks()
+            updateFloor()
         } else if !store.isAvailable {
             hasState = false
         }
+        // off the playfield (title, high-score table) for a while: clear the
+        // last round away quietly
+        outOfPlay = hasState && state.pointee.in_play != 0 ? 0 : outOfPlay + dt
+        if outOfPlay > 2.5 { clearBricks() }
         field.isEnabled = true
         animate(dt: dt)
         updateDebris(dt: dt)
@@ -293,25 +306,100 @@ final class PlayfieldScene {
 
     private func applyBricks() {
         let s = state
+        // not in play (a wipe, or another screen): hold what's shown
+        guard s.pointee.in_play != 0 else {
+            lastInPlay = false
+            return
+        }
+        let breaking = lastInPlay
+        lastInPlay = true
         for r in 0..<bricks.count {
             for c in 0..<bricks[r].count {
                 guard let b = ark3d_brick_at(s, Int32(r), Int32(c))?.pointee else { continue }
                 let e = bricks[r][c]
                 if b.kind == 0 {
-                    if brickShown[r][c] != 0 { shatter(e) }
+                    if brickShown[r][c] != 0 && breaking {
+                        let k = brickColor[r][c]
+                        shatter(e, color: UIColor(red: CGFloat(k >> 16 & 0xff) / 255, green: CGFloat(k >> 8 & 0xff) / 255,
+                                                  blue: CGFloat(k & 0xff) / 255, alpha: 1))
+                    }
                     brickShown[r][c] = 0
                     e.isEnabled = false
                     continue
                 }
-                let key = UInt32(b.rgb.0) << 16 | UInt32(b.rgb.1) << 8 | UInt32(b.rgb.2) | UInt32(b.kind) << 24
+                let flashing = b.kind == UInt8(ARK3D_KIND_BRICK_SILVER.rawValue) && b.code != 0x16e
+                let kind = flashing ? UInt8(Self.silverFlash) : b.kind
+                let key = UInt32(b.rgb.0) << 16 | UInt32(b.rgb.1) << 8 | UInt32(b.rgb.2) | UInt32(kind) << 24
                 if brickShown[r][c] != b.kind || brickColor[r][c] != key {
-                    e.model?.materials = [material(rgb: b.rgb, kind: b.kind)]
+                    if flashing && brickShown[r][c] == b.kind && breaking {
+                        Effects.sparks(in: field, at: e.position + [0, Self.brickHeight / 2, 0], color: .white, count: 12, scale: 0.6)
+                    }
+                    e.model?.materials = [material(rgb: b.rgb, kind: kind)]
                     brickColor[r][c] = key
                     brickShown[r][c] = b.kind
                 }
                 e.isEnabled = true
             }
         }
+    }
+
+    // MARK: - the game's own pixels
+
+    /// The floor shows the round's background pattern, rebuilt when it changes.
+    private func updateFloor() {
+        guard state.pointee.in_play != 0, let art = store.art else { return }
+        // key: the band the decoder learns the background from
+        var key: [UInt32] = []
+        let top = Int(layout.reference_top) / 8, bottom = Int(layout.reference_bottom) / 8
+        for r in top..<bottom {
+            for c in Int(layout.field_left) / 8..<Int(layout.field_right) / 8 {
+                key.append(UInt32(ark3d_tile_code_at(state, Int32(r), Int32(c))) << 8 | UInt32(ark3d_tile_color_at(state, Int32(r), Int32(c))))
+            }
+        }
+        guard key != floorKey, let image = art.backgroundImage(state, layout: layout, scale: 4) else { return }
+        floorKey = key
+        Task { @MainActor [weak self] in
+            guard let texture = try? await TextureResource(image: image, options: .init(semantic: .color)) else { return }
+            var m = PhysicallyBasedMaterial()
+            // dimmed, so the bricks and objects stand out from it
+            m.baseColor = .init(tint: UIColor(white: 0.55, alpha: 1), texture: .init(texture))
+            m.roughness = .init(floatLiteral: 0.7)
+            m.metallic = .init(floatLiteral: 0)
+            self?.floor.model?.materials = [m]
+        }
+    }
+
+    /// A sprite as a texture on an otherwise plain material, loaded on first
+    /// use (nil until then); pen 0 becomes the sprite's outline colour.
+    private func spriteMaterial(code: Int, color: Int) -> RealityKit.Material? {
+        let key = "s\(code)/\(color)"
+        if let texture = textures[key] {
+            var m = PhysicallyBasedMaterial()
+            m.baseColor = .init(tint: .white, texture: .init(texture))
+            m.roughness = .init(floatLiteral: 0.25)
+            m.clearcoat = .init(floatLiteral: 1)
+            return m
+        }
+        guard !texturesLoading.contains(key), let art = store.art,
+              let image = art.spriteImage(code: code, color: color, scale: 8, background: art.rgb(color: color, pen: 1)) else { return nil }
+        texturesLoading.insert(key)
+        Task { @MainActor [weak self] in
+            if let texture = try? await TextureResource(image: image, options: .init(semantic: .color)) {
+                self?.textures[key] = texture
+            }
+            self?.texturesLoading.remove(key)
+        }
+        return nil
+    }
+
+    private func clearBricks() {
+        for r in 0..<bricks.count {
+            for c in 0..<bricks[r].count where brickShown[r][c] != 0 {
+                bricks[r][c].isEnabled = false
+                brickShown[r][c] = 0
+            }
+        }
+        lastInPlay = false
     }
 
     /// exponential ease toward `target`; snaps across big jumps (new round, teleports)
@@ -329,22 +417,32 @@ final class PlayfieldScene {
             capsules.forEach { $0.isEnabled = false }
             enemies.forEach { $0.isEnabled = false }
             lasers.forEach { $0.isEnabled = false }
-            for row in bricks { row.forEach { $0.isEnabled = false } }
+            clearBricks()
             return
         }
 
-        // Vaus
-        vaus.isEnabled = s.vaus_visible != 0
-        if s.vaus_visible != 0 {
+        // Vaus: materialises by growing, explodes into sparks
+        let phase = s.vaus_phase
+        if phase != vausPhase {
+            if phase == Int32(ARK3D_VAUS_EXPLODING.rawValue) {
+                Effects.sparks(in: field, at: local(vausX, s.vaus_y, 4), color: .orange, count: 150, scale: 2.5)
+            } else if phase == Int32(ARK3D_VAUS_APPEARING.rawValue) {
+                vausAppear = 0
+            }
+            vausPhase = phase
+        }
+        vaus.isEnabled = s.vaus_visible != 0 && phase != Int32(ARK3D_VAUS_EXPLODING.rawValue)
+        if vaus.isEnabled {
             let p = ease(SIMD2(vausX, s.vaus_y), SIMD2(s.vaus_x, s.vaus_y), dt: dt, rate: 40)
             vausX = p.x
-            vausWidth += (max(s.vaus_w, 8) - vausWidth) * min(1, dt * 12)
-            let m = Self.metresPerPixel
-            vaus.position = local(vausX, s.vaus_y, 0.008)
-            let capW: Float = 6
-            vausBody.scale = SIMD3(max(vausWidth - capW, 4) * m, 1, 1)
-            vausCaps[0].position = [-(vausWidth - capW) / 2 * m, 0, 0]
-            vausCaps[1].position = [(vausWidth - capW) / 2 * m, 0, 0]
+            if phase == Int32(ARK3D_VAUS_NORMAL.rawValue) {
+                vausWidth += (max(s.vaus_w, 8) - vausWidth) * min(1, dt * 12)
+            }
+            vausAppear = min(1, vausAppear + dt * 2)
+            vaus.setWidth(vausWidth)
+            vaus.setLaser(s.vaus_laser != 0)
+            vaus.scale = [max(0.05, vausAppear), 1, 1]
+            vaus.position = local(vausX, s.vaus_y, 0)
         }
 
         // balls (matched to the nearest previous position so easing follows the right one)
@@ -360,10 +458,9 @@ final class PlayfieldScene {
             guard best >= 0 else { continue }
             used[best] = true
             ballPos[best] = balls[best].isEnabled ? ease(ballPos[best], target, dt: dt, rate: 50) : target
-            balls[best].position = local(ballPos[best].x, ballPos[best].y, 0.006)
-            balls[best].isEnabled = true
+            balls[best].place(local(ballPos[best].x, ballPos[best].y, BallModel.radius * Self.metresPerPixel), visible: true)
         }
-        for j in 0..<balls.count where !used[j] { balls[j].isEnabled = false }
+        for j in 0..<balls.count where !used[j] { balls[j].place(.zero, visible: false) }
 
         // capsules, enemies, lasers
         var ci = 0, ei = 0, li = 0
@@ -372,15 +469,14 @@ final class PlayfieldScene {
             switch Int(o.kind) {
             case Int(ARK3D_KIND_CAPSULE.rawValue) where ci < capsules.count:
                 let c = capsules[ci]; ci += 1
-                place(c, o, height: 0.009, dt: dt)
-                c.model?.materials = [capsuleMaterial(Int(o.capsule))]
-                // roll toward the player as it falls
-                c.orientation = simd_quatf(angle: -spin * 4, axis: [1, 0, 0]) * simd_quatf(angle: .pi / 2, axis: [0, 0, 1])
+                place(c, o, height: 3.5 * Self.metresPerPixel, dt: dt)
+                c.model?.materials = [spriteMaterial(code: Int(o.code), color: Int(o.color))
+                                      ?? capsuleMaterial(Int(o.capsule))]
             case Int(ARK3D_KIND_ENEMY.rawValue) where ei < enemies.count:
                 let e = enemies[ei]; ei += 1
-                place(e, o, height: 0.016 + 0.004 * sin(spin * 5 + Float(i)), dt: dt)
-                e.model?.materials = [material(rgb: o.rgb, kind: UInt8(ARK3D_KIND_BRICK.rawValue))]
-                e.orientation = simd_quatf(angle: spin * 2, axis: [0, 1, 0])
+                e.show(type: Int(ark3d_enemy_type(o.code)))
+                place(e, o, height: 0, dt: dt)
+                e.animate(t: spin, seed: Float(ei) * 1.7)
             case Int(ARK3D_KIND_LASER.rawValue) where li < lasers.count:
                 let l = lasers[li]; li += 1
                 place(l, o, height: 0.008, dt: dt)
@@ -393,7 +489,7 @@ final class PlayfieldScene {
         for j in li..<lasers.count { lasers[j].isEnabled = false; smoothed[ObjectIdentifier(lasers[j])] = nil }
     }
 
-    private func place(_ e: ModelEntity, _ o: ark3d_object, height: Float, dt: Float) {
+    private func place(_ e: Entity, _ o: ark3d_object, height: Float, dt: Float) {
         let id = ObjectIdentifier(e)
         let target = SIMD2(o.x, o.y)
         let p = smoothed[id].map { ease($0, target, dt: dt) } ?? target
@@ -405,7 +501,8 @@ final class PlayfieldScene {
     // MARK: - brick break effect
 
     /// A brick vanished from the grid: throw a few fragments of it around.
-    private func shatter(_ brick: ModelEntity) {
+    private func shatter(_ brick: ModelEntity, color: UIColor) {
+        Effects.sparks(in: field, at: brick.position + [0, Self.brickHeight / 2, 0], color: color)
         guard let mat = brick.model?.materials.first, debris.count < 120 else { return }
         let s = Self.metresPerPixel
         let mesh = MeshResource.generateBox(size: 2.5 * s)

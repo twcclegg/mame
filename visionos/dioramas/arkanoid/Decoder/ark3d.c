@@ -179,6 +179,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     // Gold hasn't been seen yet (rounds 1-2): the heuristics handle it.
     // Each round's background is learned (see ark3d_decode).
     fill(cal->tile_kind, 0x000, 0x0ff, ARK3D_KIND_TEXT);            // the font, scores
+    fill(cal->tile_kind, 0x710, 0x719, ARK3D_KIND_TEXT);            // the attract demo's "GAME OVER" banner
     fill(cal->tile_kind, 0x11e, 0x129, ARK3D_KIND_WALL);            // side walls and the top wall
     fill(cal->tile_kind, 0x15e, 0x16d, ARK3D_KIND_BRICK);
     fill(cal->tile_kind, 0x16e, 0x179, ARK3D_KIND_BRICK_SILVER);
@@ -192,7 +193,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     fill(cal->sprite_kind, 0x0f4, 0x103, ARK3D_KIND_VAUS);          // turning into the laser Vaus
     fill(cal->sprite_kind, 0x104, 0x105, ARK3D_KIND_VAUS_LASER);
     fill(cal->sprite_kind, 0x106, 0x129, ARK3D_KIND_VAUS_EXPLODING);
-    fill(cal->sprite_kind, 0x150, 0x17f, ARK3D_KIND_ENEMY);         // types of 2 stacked sprites x 8 frames
+    fill(cal->sprite_kind, 0x12a, 0x17f, ARK3D_KIND_ENEMY);         // 2 stacked sprites; see ark3d_enemy_type
     fill(cal->sprite_kind, 0x180, 0x1b7, ARK3D_KIND_CAPSULE);       // 7 letters x 8 rotation frames
     fill(cal->sprite_kind, 0x1b8, 0x1b8, ARK3D_KIND_BALL);
     fill(cal->sprite_kind, 0x1bd, 0x1bd, ARK3D_KIND_LASER);         // a shot, rising 5 px a frame
@@ -485,9 +486,10 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             st->tile_kind[r][c] = (uint8_t)kind;
         }
 
-    // ---- is a round on screen?  [game] the playfield's side walls are
-    // there (not on the title, high-score and intro screens).  Without
-    // calibrated wall tiles, assume it is.
+    // ---- is a round on screen?  [game] both side walls are there: not on
+    // the title, high-score and intro screens, nor while the game wipes and
+    // redraws the playfield (after losing a life, between rounds), which
+    // blanks it column by column.  Without calibrated wall tiles, assume it is.
     {
         int walls = 0, rows = 0;
         for (int r = layout.field_top / 8; r < ARK3D_VIEW_ROWS; r++, rows++)
@@ -499,7 +501,7 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         if (cal != NULL)
             for (int code = 0; code < ARK3D_NUM_CHARS && !calibrated_walls; code++)
                 calibrated_walls = cal->tile_kind[code] == ARK3D_KIND_WALL;
-        st->in_play = calibrated_walls ? (walls >= rows) : 1;
+        st->in_play = calibrated_walls ? (walls >= 2 * rows) : 1;
     }
 
     // ---- bricks
@@ -743,6 +745,18 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
 //------------------------------------------------------------
 //  names
 //------------------------------------------------------------
+
+int ark3d_enemy_type(uint16_t code)
+{
+    // [game] the frames of each type, read off the ROM's graphics; the
+    // attract demo and rounds 1-2 show the molecule, sphere, pyramid and cone
+    if (code >= 0x12a && code < 0x140) return ARK3D_ENEMY_MOLECULE;
+    if (code >= 0x140 && code < 0x150) return ARK3D_ENEMY_CUBE;
+    if (code >= 0x150 && code < 0x160) return ARK3D_ENEMY_SPHERE;
+    if (code >= 0x160 && code < 0x170) return ARK3D_ENEMY_PYRAMID;
+    if (code >= 0x170 && code < 0x180) return ARK3D_ENEMY_CONE;
+    return ARK3D_ENEMY_UNKNOWN;
+}
 
 const char *ark3d_kind_name(int kind)
 {
