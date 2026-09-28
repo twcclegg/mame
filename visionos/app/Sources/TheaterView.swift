@@ -34,6 +34,10 @@ struct TheaterView: View {
 }
 
 /// Owns the screen entity and keeps its texture in sync with the emulator.
+/// RealityKit's LowLevelTexture APIs are @MainActor-isolated, and this type
+/// is only ever touched from RealityView's content closure and its scene
+/// update subscription, both of which already run on the main actor.
+@MainActor
 final class ScreenUpdater {
     /// Screen width in metres (for landscape games); height follows the frame's aspect ratio.
     static let screenWidth: Float = 4.5

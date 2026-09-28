@@ -130,9 +130,11 @@ cd visionos/app && xcodegen && open MAMEVision.xcodeproj
 - **For per-game renderers** (see RESEARCH.md §7a):
   - `MAMEEngine.wantsGeometry` turns on libmame's `geometry_frame` callback. `GeometryStore` then holds each frame's camera-space 3D polygons, for drivers that export them (Sega Model 1 so far, via `src/emu/geomexport.h`).
   - `setSuppressNative3D(true)` leaves only the game's 2D layers in the video frame, so host-rendered 3D can be composited under the HUD.
-- Unverified until a Mac builds it:
-  - The Swift, Metal and RealityKit code has never been compiled. The `LowLevelTexture` / `TextureResource(from:)` calls in particular are written from Apple's docs and WWDC material.
-  - Colours in theater mode: RealityKit may treat the `bgra8Unorm` texture as linear. If it looks washed out or too dark, try `bgra8Unorm_srgb`.
+- **Status (2026-09-28): it builds and runs.** `visionos/make-libmame.sh sim` produces `libmame.xcframework` cleanly, `xcodegen && xcodebuild` builds the SwiftUI host, and on the visionOS 26.5 Simulator it launches, its `ContentView` ROM picker correctly lists ROMs found in Documents/roms, and `arkanoid -skip_gameinfo` boots all the way to the real title screen (rendered through `video_draw_pixels` → the Metal compute shader → `LowLevelTexture`/`UnlitMaterial`), with the Pixels/Sharp/CRT effect picker and Theater toggle visible in the ornament. One real bug found and fixed:
+  - **`ScreenUpdater` (`TheaterView.swift`) needed `@MainActor`.** RealityKit's `LowLevelTexture.replace(using:)` and `.init(descriptor:)` are `@MainActor`-isolated; `ScreenUpdater` wasn't, so Swift's actor-isolation checker rejected the calls at compile time. Marking the class `@MainActor` was sufficient — its only callers (`RealityView`'s content closure and its scene-update subscription) already run on the main actor, and `FrameStore` is separately `@unchecked Sendable`, so this doesn't introduce any cross-thread issue.
+  - **Not a bug, but a gotcha:** a Debug-configuration build uses Xcode's "debug dylib" stub-executor launch mechanism (a tiny stub binary that `dlopen`s the real code from a companion `.debug.dylib`), which needs Xcode's own launch environment to find that dylib. Launching a Debug build directly via bare `xcrun simctl launch` (no Xcode attached) fails with `SIGABRT` in `abort_failed_to_open___debug_dylib`/`getDebugDylibHandle` — looks like an app crash but isn't one. Build `-configuration Release` (or pass `ENABLE_DEBUG_DYLIB=NO`) to launch outside Xcode.
+  - Also: `xcodebuild -destination "generic/platform=visionOS Simulator"` fails to link (`missing architecture(s) ... x86_64`) since `libmame.xcframework` is arm64-only (this machine is Apple Silicon and the Simulator runtime doesn't need an x86_64 slice). Target a concrete device instead: `-destination "platform=visionOS Simulator,id=<udid>"`.
+  - Still unverified: Theater mode itself (the `ImmersiveSpace` / `LowLevelTexture` compute-shader path) — reaching it needs a tap on the "Theater" ornament button, and this build machine has no way to synthesize touch/pointer input (same limitation as the SDL3 app's gaze-input verification). Also unverified: colours in theater mode — RealityKit may treat the `bgra8Unorm` texture as linear; if it looks washed out or too dark, try `bgra8Unorm_srgb`.
 
 ## What changed for the port
 
@@ -171,14 +173,32 @@ GUI needed:
   Taito title screen, and renders actual Level 1 gameplay (brick layout,
   paddle, ball) via `-autoboot_script` inserting a coin and starting a game
   through MAME's Lua console. YM2149 sound initializes without error.
+- **bgfx on Metal**, i.e. `-video bgfx` specifically, on a second Simulator
+  device: initializes on Metal, the UIKit `CAMetalLayer` path in
+  `drawbgfx.cpp` works, and `arkanoid -video bgfx -bgfx_screen_chains
+  crt-geom` renders full gameplay with the crt-geom shadow-mask/glow chain
+  visibly applied. Clean exit via Lua `manager.machine:exit()`, 100% speed,
+  no crash.
 
 Still open:
-1. **bgfx on Metal**, i.e. `-video bgfx` specifically (as opposed to the
-   default `-video accel`, which goes through `SDL_Renderer`, not bgfx). It
-   compiles for both device and simulator, and a *native macOS* smoke test of
-   the same bgfx/Metal code succeeded (see RESEARCH.md milestone 4), but the
-   visionOS-specific `CAMetalLayer`-from-UIKit branch in `drawbgfx.cpp` hasn't
-   actually been run yet. Try `-video bgfx -bgfx_screen_chains crt-geom`.
+1. **A bgfx/Metal shutdown crash on the *early-fatal* path only** (e.g. a
+   missing-ROM abort before the machine starts): `SIGABRT` in
+   `renderer_bgfx::~renderer_bgfx → video_bgfx::last_renderer_destroyed →
+   bgfx::shutdown → Context::shutdown/frame/swap/renderFrame → autorelease
+   pool drain → -[MTLSerializerBlitCommandEncoder dealloc] →
+   MTLReportFailure("Command encoder released without endEncoding")`. Looks
+   like a blit encoder opened for a texture upload (`getBlitCommandEncoder`,
+   `renderer_mtl.mm` ~2451/3575) is still open when bgfx's shutdown frame's
+   autorelease pool drains. Doesn't affect normal gameplay or a normal exit,
+   only this early-abort path (MAME exiting before the machine starts) —
+   low priority, but worth fixing since a bad ROM shouldn't crash the whole
+   app. **Confirmed not visionOS-specific**: reproduces with current
+   upstream bgfx on native macOS under `MTL_DEBUG_LAYER=1` — if a
+   texture/buffer update is still pending when `bgfx::shutdown()` runs,
+   `RendererShutdownBegin` skips the submit, and the `renderFrame`
+   autorelease pool then frees the still-open blit encoder. A fix exists as
+   a draft upstream bgfx PR; MAME vendors bgfx API 118, much older than
+   upstream, so pulling the fix in would be a separate backport.
 2. **No JIT in a driver that actually uses DRC.** Arkanoid's Z80 doesn't use
    MAME's recompiler at all, so `MAME_NOASM=1` being *set* is confirmed, but
    `drc_cache` actually logging "Using W^X mode" and never executing from the
