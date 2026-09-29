@@ -3,6 +3,9 @@
 // Glass - how the bricks look, in several styles to compare
 // (DIORAMA_STYLE), and the studio light they reflect.
 //
+//   gel      (default) chunky jelly-glass blocks with a custom shader
+//            (GelShader): refraction of what's behind, Fresnel reflections,
+//            inner glow, bubbles, a rolling shimmer, iridescent silver.
 //   frosted  panes of the system's own glass (SwiftUI glassBackgroundEffect,
 //            the material of visionOS windows), tinted with the brick's
 //            colour: it blurs the real room behind them.  The panes are
@@ -24,9 +27,9 @@ import RealityKit
 import UIKit
 
 enum DioramaStyle: String {
-    case frosted, crystal, satin, neon, classic
+    case gel, frosted, crystal, satin, neon, classic
 
-    nonisolated static let current = DioramaStyle(rawValue: ProcessInfo.processInfo.environment["DIORAMA_STYLE"] ?? "") ?? .frosted
+    nonisolated static let current = DioramaStyle(rawValue: ProcessInfo.processInfo.environment["DIORAMA_STYLE"] ?? "") ?? .gel
 
     /// The board plate (floor with the game's background, and the base):
     /// only the classic style; the others float in the room.
@@ -143,6 +146,22 @@ struct GlassLook {
         if let look = cache[key] { return look }
         let silver = kind == UInt8(ARK3D_KIND_BRICK_SILVER.rawValue)
         let gold = kind == UInt8(ARK3D_KIND_BRICK_GOLD.rawValue)
+        if DioramaStyle.current == .gel {
+            var t = SIMD3<Float>(Float(rgb.0), Float(rgb.1), Float(rgb.2)) / 255
+            if silver { t = [0.88, 0.92, 1] }
+            if gold { t = [1, 0.66, 0.16] }
+            if let m = GelShader.material(tint: t, glow: flashing ? 3 : (silver ? 0.35 : 0.7),
+                                          iridescence: silver ? 0.85 : 0, opacity: silver ? 0.55 : 0.8, key: key) {
+                let look = GlassLook(shell: m, core: m, caustic: m, rim: m)
+                cache[key] = look
+                return look
+            }
+            // not loaded yet: a plain stand-in, not cached
+            var p = PhysicallyBasedMaterial()
+            p.baseColor = .init(tint: UIColor(red: CGFloat(t.x), green: CGFloat(t.y), blue: CGFloat(t.z), alpha: 1))
+            p.blending = .transparent(opacity: .init(floatLiteral: 0.7))
+            return GlassLook(shell: p, core: p, caustic: p, rim: p)
+        }
         var c = SIMD3<Float>(Float(rgb.0), Float(rgb.1), Float(rgb.2)) / 255
         if silver { c = [0.85, 0.92, 1] }
         if gold { c = [1, 0.72, 0.22] }

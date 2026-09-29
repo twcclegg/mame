@@ -38,7 +38,7 @@ struct PlayfieldView: View {
             if immersive, let pose = Self.closeupPose() {
                 scene.root.scale = SIMD3(repeating: pose.scale)
                 scene.root.position = pose.position
-                scene.root.orientation = simd_quatf(angle: pose.pitch, axis: [1, 0, 0])
+                scene.root.orientation = simd_quatf(angle: pose.yaw, axis: [0, 1, 0]) * simd_quatf(angle: pose.pitch, axis: [1, 0, 0])
             } else if immersive && PlayfieldScene.upright {
                 // a big screen in front of you: 224 px -> ~1 m wide, at eye height
                 scene.root.scale = SIMD3(repeating: 1.8)
@@ -117,15 +117,17 @@ extension PlayfieldView {
     /// Development: with DIORAMA_CLOSEUP=1 the arena puts the table close in
     /// front of the viewer, tilted toward them.  DIORAMA_POSE="y z pitch
     /// scale" (metres, degrees) overrides the default "1.4 -0.9 60 0.75".
-    static func closeupPose() -> (position: SIMD3<Float>, pitch: Float, scale: Float)? {
+    static func closeupPose() -> (position: SIMD3<Float>, pitch: Float, scale: Float, yaw: Float)? {
         let env = ProcessInfo.processInfo.environment
         guard env["DIORAMA_CLOSEUP"] == "1" else { return nil }
         var v: [Float] = PlayfieldScene.upright ? [1.3, -1.0, 90, 0.75] : [1.4, -0.9, 60, 0.75]
+        var yaw: Float = 0
         if let pose = env["DIORAMA_POSE"] {
             let parts = pose.split(separator: " ").compactMap { Float($0) }
-            if parts.count == 4 { v = parts }
+            if parts.count >= 4 { v = Array(parts.prefix(4)) }
+            if parts.count == 5 { yaw = parts[4] }      // degrees, to see the depth from the side
         }
-        return ([0, v[0], v[1]], v[2] * .pi / 180, v[3])
+        return ([0, v[0], v[1]], v[2] * .pi / 180, v[3], yaw * .pi / 180)
     }
 }
 

@@ -25,7 +25,8 @@ final class PlayfieldScene {
     /// depth coming out toward them (the default); DIORAMA_BOARD=table lays it
     /// down as a tilted table top instead.
     nonisolated static let upright = ProcessInfo.processInfo.environment["DIORAMA_BOARD"] != "table"
-    static let brickHeight: Float = 0.012
+    /// How far the bricks stand out of the board: chunky for gel.
+    nonisolated static let brickHeight: Float = DioramaStyle.current == .gel ? 0.026 : 0.012
     static let wallHeight: Float = 0.03
 
     let root = Entity()
@@ -96,6 +97,14 @@ final class PlayfieldScene {
         screen = updater
         buildDebugScreen(updater.entity)
         if DioramaStyle.usesStudio { buildGlassLighting() }
+        if DioramaStyle.current == .gel {
+            Task { @MainActor [weak self] in
+                await GelShader.load()
+                // re-apply every brick's look now the shader is here
+                guard let self else { return }
+                for r in self.brickColor.indices { for c in self.brickColor[r].indices { self.brickColor[r][c] = 0 } }
+            }
+        }
     }
 
     /// The studio environment for the glass to reflect, bloom (visionOS 27)
@@ -323,7 +332,9 @@ final class PlayfieldScene {
 
     private func buildPools() {
         let s = Self.metresPerPixel
-        let bw = Float(layout.brick_w) * s * 0.94, bd = Float(layout.brick_h) * s * 0.9
+        // gel bricks nearly fill their cells, like a wall of glass blocks
+        let fill: (Float, Float) = DioramaStyle.current == .gel ? (0.97, 0.93) : (0.94, 0.9)
+        let bw = Float(layout.brick_w) * s * fill.0, bd = Float(layout.brick_h) * s * fill.1
         let rows = Int(min(layout.grid_rows, ARK3D_MAX_GRID_ROWS)), cols = Int(min(layout.grid_cols, ARK3D_MAX_GRID_COLS))
         for r in 0..<rows {
             var row: [GlassBrick] = []
