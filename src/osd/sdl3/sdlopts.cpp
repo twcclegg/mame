@@ -17,6 +17,15 @@
 #include "unistd.h"
 #endif
 
+#if defined(SDLMAME_VISIONOS)
+#include "emuopts.h"
+
+#include <cstdlib>
+
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 
 namespace {
 
@@ -29,6 +38,8 @@ namespace {
 	#define INI_PATH ".;ini;ini/presets"
 #elif defined(SDLMAME_MACOSX)
 	#define INI_PATH "$HOME/Library/Application Support/APP_NAME;$HOME/.APP_NAME;.;ini"
+#elif defined(SDLMAME_VISIONOS)
+	#define INI_PATH ".;ini" // relative to the app's Documents folder, see setup_visionos_paths
 #else
 	#define INI_PATH "$HOME/.APP_NAME;.;ini"
 #endif // MACOSX
@@ -97,6 +108,49 @@ const options_entry f_sdl_option_entries[] =
 	{ nullptr }
 };
 
+
+#if defined(SDLMAME_VISIONOS)
+//============================================================
+//  setup_visionos_paths
+//
+//  visionOS apps are sandboxed: the app bundle is read-only
+//  and user data lives in the container's Documents folder
+//  (visible in the Files app when UIFileSharingEnabled is set
+//  in Info.plist).  Run from Documents so relative paths such
+//  as roms, cfg and nvram end up there, and look for bundled
+//  support files in the app bundle as well.
+//============================================================
+
+void setup_visionos_paths(sdl_options &opts)
+{
+	char const *const home = std::getenv("HOME");
+	if (home && *home)
+	{
+		std::string const documents = std::string(home) + "/Documents";
+		::mkdir(documents.c_str(), 0755);
+		for (char const *subdir : { "/roms", "/ini", "/artwork", "/samples", "/ctrlr" })
+			::mkdir((documents + subdir).c_str(), 0755);
+		if (::chdir(documents.c_str()) != 0)
+			osd_printf_warning("Unable to change to Documents folder %s\n", documents);
+	}
+
+	// SDL_GetBasePath returns the bundle's resource path with a trailing separator
+	char const *const base = SDL_GetBasePath();
+	if (base && *base)
+	{
+		std::string const bundle(base);
+		opts.set_default_value(OPTION_HASHPATH, bundle + "hash");
+		opts.set_default_value(OPTION_PLUGINSPATH, bundle + "plugins");
+		opts.set_default_value(OPTION_LANGUAGEPATH, bundle + "language");
+		opts.set_default_value(OPTION_ARTPATH, "artwork;" + bundle + "artwork");
+		opts.set_default_value(OPTION_CTRLRPATH, "ctrlr;" + bundle + "ctrlr");
+		opts.set_default_value(OPTION_SAMPLEPATH, "samples;" + bundle + "samples");
+		opts.set_default_value(OSDOPTION_BGFX_PATH, bundle + "bgfx");
+		opts.set_default_value(SDLOPTION_INIPATH, ".;ini;" + bundle + "ini");
+	}
+}
+#endif // SDLMAME_VISIONOS
+
 } // anonymous namespace
 
 
@@ -113,6 +167,9 @@ sdl_options::sdl_options() : osd_options()
 	add_entries(f_sdl_option_entries);
 	strreplace(ini_path, "APP_NAME", emulator_info::get_appname_lower());
 	set_default_value(SDLOPTION_INIPATH, std::move(ini_path));
+#if defined(SDLMAME_VISIONOS)
+	setup_visionos_paths(*this);
+#endif
 }
 
 

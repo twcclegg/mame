@@ -89,7 +89,11 @@ if BASE_TARGETOS=="unix" then
 	defines {
 		"SDLMAME_UNIX",
 	}
-	if _OPTIONS["targetos"]=="macosx" then
+	if _OPTIONS["targetos"]=="visionos" then
+		buildoptions {
+			"-F" .. visionos_sdl_framework_dir(),
+		}
+	elseif _OPTIONS["targetos"]=="macosx" then
 		if _OPTIONS["USE_LIBSDL"]~="1" then
 			buildoptions {
 				"-F" .. _OPTIONS["SDL_FRAMEWORK_PATH"],
@@ -129,6 +133,11 @@ if _OPTIONS["targetos"]=="windows" then
 elseif _OPTIONS["targetos"]=="macosx" then
 	defines {
 		"SDLMAME_MACOSX",
+		"SDLMAME_DARWIN",
+	}
+elseif _OPTIONS["targetos"]=="visionos" then
+	defines {
+		"SDLMAME_VISIONOS",
 		"SDLMAME_DARWIN",
 	}
 elseif _OPTIONS["targetos"]=="freebsd" then

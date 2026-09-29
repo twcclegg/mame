@@ -950,7 +950,12 @@ public:
 	virtual std::unique_ptr<osd_renderer> create(osd_window &window) override;
 
 protected:
-	virtual unsigned flags() const override { return FLAG_INTERACTIVE | FLAG_SDL_NEEDS_OPENGL; }
+	// SDL_CreateRenderer() is given a null driver name (auto-select), so this
+	// doesn't need an OpenGL-flagged window the way the legacy sdl OSD's
+	// draw13.cpp/drawsdl.cpp do; claiming FLAG_SDL_NEEDS_OPENGL here made
+	// window creation fail outright on platforms with no GL at all (e.g.
+	// visionOS), even though the renderer ends up using Metal there.
+	virtual unsigned flags() const override { return FLAG_INTERACTIVE; }
 
 private:
 	static inline constexpr Uint32 BM_ALL = UINT32_MAX; // SDL_BLENDMODE_MASK | SDL_BLENDMODE_BLEND | SDL_BLENDMODE_ADD | SDL_BLENDMODE_MOD

@@ -33,6 +33,8 @@ newoption {
 		{ "openbsd-clang", "OpenBSD (clang compiler)"},
 		{ "osx",           "OSX (GCC compiler)"     },
 		{ "osx-clang",     "OSX (Clang compiler)"   },
+		{ "visionos-clang",     "visionOS device (Xcode Clang compiler)"    },
+		{ "visionos-sim-clang", "visionOS simulator (Xcode Clang compiler)" },
 	},
 }
 
@@ -50,6 +52,36 @@ newoption {
 	value   = "#",
 	description = "Set Android platform version (default: android-24).",
 }
+
+newoption {
+	trigger = "with-visionos",
+	value   = "#",
+	description = "Set minimum visionOS version (default: 2.0).",
+}
+
+local visionos = {}
+
+function visionosSdk()
+	if "visionos-sim-clang" == _OPTIONS["gcc"] then
+		return "xrsimulator"
+	end
+	return "xros"
+end
+
+function visionosTarget()
+	local minVersion = _OPTIONS["with-visionos"] or "2.0"
+	if "visionos-sim-clang" == _OPTIONS["gcc"] then
+		return "arm64-apple-xros" .. minVersion .. "-simulator"
+	end
+	return "arm64-apple-xros" .. minVersion
+end
+
+function visionosSdkPath()
+	if visionos.sdkPath == nil then
+		visionos.sdkPath = string.gsub(os.outputof("xcrun --sdk " .. visionosSdk() .. " --show-sdk-path") or "", "%s+$", "")
+	end
+	return visionos.sdkPath
+end
 
 local android = {}
 
@@ -199,6 +231,13 @@ function toolchain(_buildDir, _subDir)
 			premake.gcc.cxx = toolchainPrefix .. "clang++"
 			premake.gcc.ar  = toolchainPrefix .. "ar"
 			location (_buildDir .. "projects/" .. _subDir .. "/".. _ACTION .. "-osx-clang")
+		end
+
+		if "visionos-clang" == _OPTIONS["gcc"] or "visionos-sim-clang" == _OPTIONS["gcc"] then
+			premake.gcc.cc  = "xcrun --sdk " .. visionosSdk() .. " clang"
+			premake.gcc.cxx = "xcrun --sdk " .. visionosSdk() .. " clang++"
+			premake.gcc.ar  = "xcrun --sdk " .. visionosSdk() .. " ar"
+			location (_buildDir .. "projects/" .. _subDir .. "/".. _ACTION .. "-" .. _OPTIONS["gcc"])
 		end
 	elseif _ACTION == "vs2022" then
 
@@ -533,6 +572,28 @@ function toolchain(_buildDir, _subDir)
 			"-Wno-unknown-warning-option",
 			"-Wno-extern-c-compat",
 		}
+
+	if _OPTIONS["gcc"] ~= nil and string.find(_OPTIONS["gcc"], "visionos") then
+		configuration { "visionos-*" }
+			objdir (_buildDir .. _OPTIONS["gcc"] .. "/obj")
+			buildoptions {
+				"-target " .. visionosTarget(),
+				"-isysroot " .. visionosSdkPath(),
+				"-DHAVE_IMMINTRIN_H=0",
+				"-DSDL_DISABLE_IMMINTRIN_H=1",
+				"-DHAVE_SSE=0",
+			}
+			linkoptions {
+				"-target " .. visionosTarget(),
+				"-isysroot " .. visionosSdkPath(),
+			}
+
+		configuration { "visionos-*", "Release" }
+			targetdir (_buildDir .. _OPTIONS["gcc"] .. "/bin/Release")
+
+		configuration { "visionos-*", "Debug" }
+			targetdir (_buildDir .. _OPTIONS["gcc"] .. "/bin/Debug")
+	end
 
 	configuration { "osx*", "x32", "not arm64" }
 		objdir (_buildDir .. "osx_clang" .. "/obj")

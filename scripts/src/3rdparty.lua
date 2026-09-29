@@ -57,7 +57,7 @@ if _OPTIONS["targetos"]=="windows" then
 		"__USE_MINGW_ANSI_STDIO=0",
 	}
 end
-if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
+if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
 	defines {
 		"HAVE_ARC4RANDOM",
 		"HAVE_ARC4RANDOM_BUF",
@@ -124,7 +124,7 @@ if _OPTIONS["targetos"]=="windows" then
 		MAME_DIR .. "3rdparty/expat/lib/random_rand_s.c",
 	}
 end
-if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
+if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="freebsd" or _OPTIONS["targetos"]=="netbsd" or _OPTIONS["targetos"]=="openbsd" then
 	files {
 		MAME_DIR .. "3rdparty/expat/lib/random_arc4random.c",
 		MAME_DIR .. "3rdparty/expat/lib/random_arc4random_buf.c",
@@ -775,7 +775,7 @@ end
 			}
 		end
 
-		if _OPTIONS["targetos"]=="macosx" then
+		if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" then
 			defines {
 				"FLAC__SYS_DARWIN",
 			}
@@ -795,7 +795,7 @@ end
 		buildoptions {
 			"-Wno-enum-conversion",
 		}
-		if _OPTIONS["targetos"]=="macosx" then
+		if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" then
 			buildoptions_c {
 				"-Wno-unknown-attributes",
 			}
@@ -969,9 +969,17 @@ if _OPTIONS["vs"]==nil then
 end
 
 	configuration { }
-	if (_OPTIONS["targetos"] ~= "windows") and (_OPTIONS["targetos"] ~= "asmjs") then
+	if (_OPTIONS["targetos"] ~= "windows") and (_OPTIONS["targetos"] ~= "asmjs") and (_OPTIONS["targetos"] ~= "visionos") then
 		defines {
 			"LUA_USE_POSIX",
+		}
+	end
+	-- visionOS (like iOS) has no 'system()'; os.execute() becomes a stub.
+	-- luaconf.h defines LUA_USE_POSIX itself when LUA_USE_IOS is set, so
+	-- don't also pass LUA_USE_POSIX above or the macro is redefined.
+	if _OPTIONS["targetos"]=="visionos" then
+		defines {
+			"LUA_USE_IOS",
 		}
 	end
 
@@ -1088,6 +1096,13 @@ project "sqlite3"
 			"-Wno-error=unused-but-set-variable",
 			"-Wno-error=unused-variable",
 		}
+	if _OPTIONS["targetos"]=="visionos" then
+		-- sqlite3.c's own gethostuuid() probe emits #warning on embedded
+		-- Apple targets; make it explicit instead of fighting -Werror.
+		defines {
+			"HAVE_GETHOSTUUID=0",
+		}
+	end
 if _OPTIONS["gcc"]~=nil then
 	if string.find(_OPTIONS["gcc"], "clang") or string.find(_OPTIONS["gcc"], "asmjs") or string.find(_OPTIONS["gcc"], "android") then
 		buildoptions_c {
@@ -1235,6 +1250,11 @@ project "bx"
 			MAME_DIR .. "3rdparty/bx/include/compat/osx",
 		}
 
+	configuration { "visionos-*" }
+		includedirs {
+			MAME_DIR .. "3rdparty/bx/include/compat/ios",
+		}
+
 	configuration { "freebsd" }
 		includedirs {
 			MAME_DIR .. "3rdparty/bx/include/compat/freebsd",
@@ -1252,7 +1272,7 @@ project "bx"
 
 	configuration { }
 
-	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
+	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
 		if _OPTIONS["gcc"]~=nil and (string.find(_OPTIONS["gcc"], "clang") or string.find(_OPTIONS["gcc"], "asmjs")) then
 			buildoptions_cpp {
 				"-Wno-unused-private-field",
@@ -1316,6 +1336,11 @@ project "bimg"
 			MAME_DIR .. "3rdparty/bx/include/compat/osx",
 		}
 
+	configuration { "visionos-*" }
+		includedirs {
+			MAME_DIR .. "3rdparty/bx/include/compat/ios",
+		}
+
 	configuration { "freebsd" }
 		includedirs {
 			MAME_DIR .. "3rdparty/bx/include/compat/freebsd",
@@ -1342,7 +1367,7 @@ project "bimg"
 
 	configuration { }
 
-	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
+	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="linux" or _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="asmjs" then
 		if _OPTIONS["gcc"]~=nil and (string.find(_OPTIONS["gcc"], "clang") or string.find(_OPTIONS["gcc"], "asmjs")) then
 			buildoptions_cpp {
 				"-Wno-unused-const-variable",
@@ -1425,6 +1450,8 @@ project "bimg"
 -- BGFX library objects
 --------------------------------------------------
 
+-- the ios OSD (libmame) leaves rendering to the host app, so it has no use for bgfx
+if _OPTIONS["osd"] ~= "ios" then
 project "bgfx"
 	uuid "d3e7e119-35cf-4f4f-aba0-d3bdcd1b879a"
 	kind "StaticLib"
@@ -1478,6 +1505,11 @@ end
 			MAME_DIR .. "3rdparty/bx/include/compat/osx",
 		}
 
+	configuration { "visionos-*" }
+		includedirs {
+			MAME_DIR .. "3rdparty/bx/include/compat/ios",
+		}
+
 	configuration { "freebsd" }
 		includedirs {
 			MAME_DIR .. "3rdparty/bx/include/compat/freebsd",
@@ -1525,7 +1557,7 @@ end
 		end
 	end
 
-	if _OPTIONS["targetos"]=="macosx" or  _OPTIONS["targetos"]=="linux" then
+	if _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="linux" then
 		if _OPTIONS["gcc"]~=nil and string.find(_OPTIONS["gcc"], "clang") then
 			buildoptions {
 				"-Wno-switch",
@@ -1607,6 +1639,23 @@ end
 			"-D BGFX_CONFIG_MULTITHREADED=0",
 		}
 	end
+	if _OPTIONS["targetos"]=="visionos" then
+		-- Metal is the only renderer available on visionOS
+		defines {
+			"BGFX_CONFIG_RENDERER_METAL=1",
+			"BGFX_CONFIG_RENDERER_OPENGL=0",
+			"BGFX_CONFIG_RENDERER_OPENGLES=0",
+			"BGFX_CONFIG_RENDERER_VULKAN=0",
+		}
+		files {
+			MAME_DIR .. "3rdparty/bgfx/src/renderer_mtl.mm",
+		}
+		buildoptions {
+			"-x objective-c++",
+			"-D BGFX_CONFIG_MULTITHREADED=0",
+		}
+	end
+end -- _OPTIONS["osd"] ~= "ios"
 
 
 --------------------------------------------------

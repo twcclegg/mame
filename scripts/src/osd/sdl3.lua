@@ -44,7 +44,7 @@ function maintargetosdoptions(_target,_subtarget)
 		}
 	end
 
-	if BASE_TARGETOS=="unix" and _OPTIONS["targetos"]~="macosx" and _OPTIONS["targetos"]~="android" and _OPTIONS["targetos"]~="asmjs" then
+	if BASE_TARGETOS=="unix" and _OPTIONS["targetos"]~="macosx" and _OPTIONS["targetos"]~="visionos" and _OPTIONS["targetos"]~="android" and _OPTIONS["targetos"]~="asmjs" then
 		links {
 			"SDL3_ttf",
 		}
@@ -158,7 +158,7 @@ newoption {
 }
 
 if not _OPTIONS["NO_X11"] then
-	if _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="haiku" or _OPTIONS["targetos"]=="asmjs" or _OPTIONS["targetos"]=="android" then
+	if _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="haiku" or _OPTIONS["targetos"]=="asmjs" or _OPTIONS["targetos"]=="android" then
 		_OPTIONS["NO_X11"] = "1"
 	else
 		_OPTIONS["NO_X11"] = "0"
@@ -175,7 +175,7 @@ newoption {
 }
 
 if not _OPTIONS["NO_USE_XINPUT"] then
-	if _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="haiku" or _OPTIONS["targetos"]=="asmjs" or _OPTIONS["targetos"]=="android" then
+	if _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="visionos" or _OPTIONS["targetos"]=="haiku" or _OPTIONS["targetos"]=="asmjs" or _OPTIONS["targetos"]=="android" then
 		_OPTIONS["NO_USE_XINPUT"] = "1"
 	else
 		_OPTIONS["NO_USE_XINPUT"] = "0"
@@ -219,6 +219,29 @@ if not _OPTIONS["SDL_FRAMEWORK_PATH"] then
 end
 
 newoption {
+	trigger = "SDL_XCFRAMEWORK_PATH",
+	description = "Location of SDL3.xcframework used for visionOS builds (default: /Library/Frameworks/SDL3.xcframework)",
+}
+
+-- Pick the xros device or simulator slice out of SDL3.xcframework.  Slice
+-- directory names vary with how the framework was built (e.g. xros-arm64,
+-- xros-arm64-simulator, xros-arm64_x86_64-simulator), so match by pattern.
+function visionos_sdl_framework_dir()
+	if _OPTIONS["SDL_FRAMEWORK_PATH"] and not framework_path_default then
+		return _OPTIONS["SDL_FRAMEWORK_PATH"]
+	end
+	local xcframework = _OPTIONS["SDL_XCFRAMEWORK_PATH"] or "/Library/Frameworks/SDL3.xcframework"
+	local want_sim = (_OPTIONS["gcc"] == "visionos-sim-clang")
+	for _, dir in ipairs(os.matchdirs(path.join(xcframework, "xros-*"))) do
+		local is_sim = (string.find(dir, "simulator", 1, true) ~= nil)
+		if is_sim == want_sim then
+			return dir
+		end
+	end
+	error("No visionOS " .. (want_sim and "simulator " or "device ") .. "slice found in " .. xcframework .. " (set SDL_XCFRAMEWORK_PATH or SDL_FRAMEWORK_PATH)")
+end
+
+newoption {
 	trigger = "USE_LIBSDL",
 	description = "Use SDL library on OS (rather than framework/dll)",
 	allowed = {
@@ -250,7 +273,28 @@ elseif _OPTIONS["targetos"]=="macosx" then
 end
 
 if BASE_TARGETOS=="unix" then
-	if _OPTIONS["targetos"]=="macosx" then
+	if _OPTIONS["targetos"]=="visionos" then
+		local sdl_framework_dir = visionos_sdl_framework_dir()
+		linkoptions {
+			"-F" .. sdl_framework_dir,
+			"-rpath @executable_path/Frameworks",
+			"-framework SDL3",
+			"-framework Foundation",
+			"-framework UIKit",
+			"-framework QuartzCore",
+			"-framework Metal",
+			"-framework AVFoundation",
+			"-framework AudioToolbox",
+			"-framework CoreAudio",
+			"-framework CoreHaptics",
+			"-framework CoreMotion",
+			"-framework GameController",
+		}
+		links {
+			"m",
+			"pthread",
+		}
+	elseif _OPTIONS["targetos"]=="macosx" then
 		local os_version = str_to_version(backtick("sw_vers -productVersion"))
 
 		links {
@@ -354,7 +398,9 @@ project ("osd_" .. _OPTIONS["osd"])
 		MAME_DIR .. "3rdparty",
 		MAME_DIR .. "src/osd/sdl3",
 	}
-	addincludesfromstring(backtick(sdlconfigcmd() .. " --cflags"))
+	if _OPTIONS["targetos"]~="visionos" then
+		addincludesfromstring(backtick(sdlconfigcmd() .. " --cflags"))
+	end
 
 	if _OPTIONS["targetos"]=="macosx" then
 		files {
@@ -434,7 +480,9 @@ project ("ocore_" .. _OPTIONS["osd"])
 		MAME_DIR .. "src/osd/sdl3",
 		ext_includedir("asio"),
 	}
-	addincludesfromstring(backtick(sdlconfigcmd() .. " --cflags"))
+	if _OPTIONS["targetos"]~="visionos" then
+		addincludesfromstring(backtick(sdlconfigcmd() .. " --cflags"))
+	end
 
 	files {
 		MAME_DIR .. "src/osd/asio.cpp",

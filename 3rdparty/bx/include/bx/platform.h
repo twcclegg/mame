@@ -54,6 +54,7 @@
 #define BX_PLATFORM_HAIKU      0
 #define BX_PLATFORM_HURD       0
 #define BX_PLATFORM_IOS        0
+#define BX_PLATFORM_VISIONOS   0
 #define BX_PLATFORM_LINUX      0
 #define BX_PLATFORM_NX         0
 #define BX_PLATFORM_OSX        0
@@ -63,6 +64,16 @@
 #define BX_PLATFORM_WINDOWS    0
 #define BX_PLATFORM_WINRT      0
 #define BX_PLATFORM_XBOXONE    0
+
+// MAME: detect visionOS without relying on short-circuit evaluation in #if
+// (compilers without __has_builtin can't parse __is_target_os(...))
+#if defined(__has_builtin)
+#	if __has_builtin(__is_target_os)
+#		if __is_target_os(xros)
+#			define BX_PRIVATE_TARGET_XROS 1
+#		endif
+#	endif
+#endif
 
 // http://sourceforge.net/apps/mediawiki/predef/index.php?title=Compilers
 #if defined(__clang__)
@@ -193,6 +204,13 @@
 #elif  defined(__linux__)
 #	undef  BX_PLATFORM_LINUX
 #	define BX_PLATFORM_LINUX 1
+#elif defined(BX_PRIVATE_TARGET_XROS)
+// MAME: visionOS uses the iOS (UIKit) code paths, plus BX_PLATFORM_VISIONOS
+// where it differs.  Upstream bx has native visionOS support.
+#	undef  BX_PLATFORM_IOS
+#	define BX_PLATFORM_IOS 1
+#	undef  BX_PLATFORM_VISIONOS
+#	define BX_PLATFORM_VISIONOS 1
 #elif  defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) \
 	|| defined(__ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__)
 #	undef  BX_PLATFORM_IOS
@@ -378,6 +396,8 @@
 #	define BX_PLATFORM_NAME "Haiku"
 #elif BX_PLATFORM_HURD
 #	define BX_PLATFORM_NAME "Hurd"
+#elif BX_PLATFORM_VISIONOS
+#	define BX_PLATFORM_NAME "visionOS"
 #elif BX_PLATFORM_IOS
 #	define BX_PLATFORM_NAME "iOS"
 #elif BX_PLATFORM_LINUX

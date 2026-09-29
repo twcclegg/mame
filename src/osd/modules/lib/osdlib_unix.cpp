@@ -308,7 +308,7 @@ void *virtual_memory_allocation::do_alloc(std::initializer_list<std::size_t> blo
 #else
 	int const prot(PROT_NONE);
 #endif
-#if defined(SDLMAME_BSD) || defined(SDLMAME_MACOSX) || defined(SDLMAME_EMSCRIPTEN)
+#if defined(SDLMAME_BSD) || defined(SDLMAME_DARWIN) || defined(SDLMAME_EMSCRIPTEN)
 	int const fd(-1);
 #else
 	// TODO: portable applications are supposed to use -1 for anonymous mappings - detect whatever requires 0 specifically

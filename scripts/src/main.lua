@@ -115,6 +115,10 @@ end
 				os.copyfile(androidToolchainRoot() .. "/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so", MAME_DIR .. "android-project/app/src/main/libs/x86_64/libc++_shared.so")
 			end
 		end
+	elseif _OPTIONS["targetos"]=="visionos" then
+		-- keep the cross-compiled binary away from a host build's ./mame;
+		-- visionos/bundle.sh wraps it into an .app from here
+		targetdir(MAME_DIR .. _OPTIONS["build-dir"] .. "/" .. _OPTIONS["gcc"] .. "/bin")
 	else
 		if _OPTIONS["SEPARATE_BIN"]~="1" then
 			targetdir(MAME_DIR)
