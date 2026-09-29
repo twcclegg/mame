@@ -115,7 +115,10 @@ final class EnemyModel: Entity {
     required init() {
         super.init()
         let molecule = Entity()
-        let ballColors: [UIColor] = [.systemRed, .systemGreen, .systemBlue]
+        // colours from the game's palette (colour group 0d): red, green, cyan
+        let ballColors: [UIColor] = [UIColor(red: 1, green: 0.05, blue: 0.05, alpha: 1),
+                                     UIColor(red: 0.05, green: 0.95, blue: 0.1, alpha: 1),
+                                     UIColor(red: 0, green: 0.85, blue: 1, alpha: 1)]
         for i in 0..<3 {
             let a = Float(i) * 2 * .pi / 3
             let b = shadowed(ModelEntity(mesh: .generateSphere(radius: 3.2 * px),
@@ -127,7 +130,9 @@ final class EnemyModel: Entity {
 
         shapes[Int(ARK3D_ENEMY_CUBE.rawValue)] = shadowed(ModelEntity(
             mesh: .generateBox(size: 8 * px, cornerRadius: 1 * px),
-            materials: [pbr(.systemTeal, metallic: 0.3, roughness: 0.25, clearcoat: 1)]))
+            // red, shaded darker in the game (colour group 10)
+            materials: [pbr(UIColor(red: 0.95, green: 0.05, blue: 0.05, alpha: 1), metallic: 0.3, roughness: 0.25, clearcoat: 1,
+                            emissive: UIColor(red: 0.4, green: 0, blue: 0, alpha: 1), emissiveIntensity: 0.4)]))
 
         shapes[Int(ARK3D_ENEMY_PYRAMID.rawValue)] = shadowed(ModelEntity(
             mesh: Self.pyramid(base: 11 * px, height: 10 * px),
@@ -135,10 +140,12 @@ final class EnemyModel: Entity {
                             emissive: UIColor(red: 0, green: 0.3, blue: 0.1, alpha: 1), emissiveIntensity: 0.5)]))
 
         let cone = Entity()
+        // blues from the game's palette (colour group 12)
         let coneBody = shadowed(ModelEntity(mesh: .generateCone(height: 11 * px, radius: 4.5 * px),
-                                            materials: [pbr(.systemYellow, metallic: 0.4, roughness: 0.25)]))
+                                            materials: [pbr(UIColor(red: 0, green: 0.68, blue: 1, alpha: 1), metallic: 0.4, roughness: 0.25,
+                                                            clearcoat: 1)]))
         let disc = shadowed(ModelEntity(mesh: .generateCylinder(height: 1 * px, radius: 6.5 * px),
-                                        materials: [pbr(.systemBlue, metallic: 0.6, roughness: 0.2)]))
+                                        materials: [pbr(UIColor(red: 0, green: 0, blue: 0.68, alpha: 1), metallic: 0.6, roughness: 0.2)]))
         disc.position.y = -4 * px
         cone.addChild(coneBody)
         cone.addChild(disc)

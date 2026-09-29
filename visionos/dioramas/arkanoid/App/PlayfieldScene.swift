@@ -56,6 +56,7 @@ final class PlayfieldScene {
     private var balls: [BallModel] = []
     private var ballPos: [SIMD2<Float>] = []
     private var capsules: [CapsuleModel] = []
+    private var lastBallCount = 0                   // for the Disruption split
     /// Where enemies were destroyed lately, so each gets one burst.
     private var recentBursts: [(position: SIMD2<Float>, age: Float)] = []
     private var lifeIcons: [VausModel] = []         // spare lives, bottom left, as the game shows them
@@ -587,6 +588,16 @@ final class PlayfieldScene {
             balls[best].place(local(ballPos[best].x, ballPos[best].y, BallModel.radius * Self.metresPerPixel), visible: true)
         }
         for j in 0..<balls.count where !used[j] { balls[j].place(.zero, visible: false) }
+
+        // Disruption (D capsule): one ball becomes three, with a shockwave
+        let ballCount = Int(s.ball_count)
+        if ballCount >= 2 && lastBallCount == 1, let o = ark3d_ball_at(state, 0)?.pointee {
+            let at = local(o.x, o.y, BallModel.radius * Self.metresPerPixel)
+            flash(at: at, color: UIColor(red: 0.3, green: 0.9, blue: 1, alpha: 1), size: 60, duration: 0.45)
+            flash(at: at, color: .white, size: 22, duration: 0.2)
+            Effects.sparks(in: field, at: at, color: .cyan, count: 60, scale: 1.6)
+        }
+        lastBallCount = ballCount
 
         // capsules, enemies, lasers, enemy explosions
         for i in recentBursts.indices { recentBursts[i].age += dt }
