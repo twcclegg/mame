@@ -40,6 +40,13 @@
 int myosd_display_width;
 int myosd_display_height;
 
+// host requests from myosd_set, applied on the MAME thread (see apply_host_requests)
+std::atomic<int> myosd_pause_request{ -1 };     // -1 none, 0 resume, 1 pause
+std::atomic<bool> myosd_host_paused{ false };
+std::atomic<int> myosd_zoom_request{ -1 };      // -1 none, 0 off, 1 on
+std::atomic<bool> myosd_zoom_to_screen{ false };
+std::atomic<bool> myosd_suppress_native_3d{ false };
+
 //============================================================
 //  OPTIONS
 //============================================================
@@ -108,6 +115,15 @@ extern "C" intptr_t myosd_get(int var)
             
         case MYOSD_SPEED:
             return 0;
+
+        case MYOSD_PAUSE:
+            return myosd_host_paused ? 1 : 0;
+
+        case MYOSD_ZOOM_TO_SCREEN:
+            return myosd_zoom_to_screen ? 1 : 0;
+
+        case MYOSD_SUPPRESS_NATIVE_3D:
+            return myosd_suppress_native_3d ? 1 : 0;
     }
     return 0;
 }
@@ -130,6 +146,15 @@ extern "C" void myosd_set(int var, intptr_t value)
             break;
         case MYOSD_SPEED:
             //myosd_speed = value;
+            break;
+        case MYOSD_PAUSE:
+            myosd_pause_request = value ? 1 : 0;
+            break;
+        case MYOSD_ZOOM_TO_SCREEN:
+            myosd_zoom_request = value ? 1 : 0;
+            break;
+        case MYOSD_SUPPRESS_NATIVE_3D:
+            myosd_suppress_native_3d = value != 0;
             break;
     }
 }

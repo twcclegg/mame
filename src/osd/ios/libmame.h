@@ -364,6 +364,15 @@ enum {
     MYOSD_DISPLAY_HEIGHT,
     MYOSD_FPS,                  // GET, SET: show framerate
     MYOSD_SPEED,                // GET, SET: emulation speed (100 = 100%)
+    // added for the visionOS port (SETs may come from any thread; they are
+    // applied on the MAME thread at the next frame)
+    MYOSD_PAUSE,                // GET: 1 if paused by the host.  SET: 1 = pause (and save NVRAM,
+                                //   so an app killed in the background keeps high scores), 0 = resume.
+                                //   Resuming never undoes a pause the user made in MAME itself.
+    MYOSD_ZOOM_TO_SCREEN,       // GET, SET: 1 = frame just the emulated screen(s), cropping artwork
+                                //   around them (e.g. for a big theater screen or a per-game renderer)
+    MYOSD_SUPPRESS_NATIVE_3D,   // GET, SET: 1 = drivers that export geometry skip rasterizing it
+                                //   (only meaningful with a geometry_frame callback)
 };
 extern intptr_t myosd_get(int var);
 extern void myosd_set(int var, intptr_t value);
@@ -385,6 +394,39 @@ typedef struct {
     int skipped;                // 1 if this frame will not be drawn (frameskip); state is still valid
     int paused;                 // 1 while the emulation is paused (the same frame repeats)
 } myosd_frame_info;
+
+// 3D scene geometry for the geometry_frame callback (drivers that support
+// geometry export only; so far Sega Model 1).  Mirrors src/emu/geomexport.h:
+// camera space is +x right, +y up, +z forward; to reproduce the game's own
+// projection:  screen_x = center_x + (x/z)*scale_x + offset_x
+//              screen_y = center_y - ((y/z)*scale_y + offset_y)
+typedef struct { float x, y, z; } myosd_vertex;
+
+enum {
+    MYOSD_POLY_MOIRE     = 1 << 0,  // stippled / translucent (shadows)
+    MYOSD_POLY_WIREFRAME = 1 << 1,  // a line from v[0] to v[2]
+};
+
+typedef struct {
+    myosd_vertex v[4];
+    int count;                      // 3 or 4
+    uint32_t rgb;                   // 0x00RRGGBB, lit by the game
+    uint32_t flags;                 // MYOSD_POLY_*
+    float sort_z;                   // game's depth-sort key (larger = further)
+} myosd_polygon;
+
+typedef struct {
+    float center_x, center_y, scale_x, scale_y, offset_x, offset_y;
+    int clip_min_x, clip_min_y, clip_max_x, clip_max_y;
+    int screen_width, screen_height;
+    const myosd_polygon* polygons;  // in the game's draw order
+    int count;
+} myosd_geometry_batch;
+
+typedef struct {
+    const myosd_geometry_batch* batches;    // one per viewport/projection used this frame
+    int count;
+} myosd_geometry_frame;             // only valid for the duration of the callback
 
 // MYOSD app callback functions
 typedef struct {
@@ -423,6 +465,12 @@ typedef struct {
     // set analog inputs for the next frame.  Keep it short: the emulation
     // waits for it.
     void (*machine_frame)(const myosd_frame_info* info);
+
+    // OPTIONAL: 3D geometry of the frame just drawn, for drivers that export it
+    // (see myosd_geometry_frame).  Called on the MAME thread right before the
+    // video callback for the same frame.  Set MYOSD_SUPPRESS_NATIVE_3D to have
+    // the driver skip rasterizing that geometry itself (2D layers still draw).
+    void (*geometry_frame)(const myosd_geometry_frame* frame);
 
 }   myosd_callbacks;
 

@@ -20,6 +20,7 @@
 #include "machine/timer.h"
 
 #include "emupal.h"
+#include "geomexport.h"
 #include "screen.h"
 
 #include <glm/vec3.hpp>
@@ -325,6 +326,7 @@ protected:
 	static void fill_slope(bitmap_rgb32 &bitmap, view_t *view, int color, int32_t x1, int32_t x2, int32_t sl1, int32_t sl2, int32_t y1, int32_t y2, int32_t *nx1, int32_t *nx2);
 	static void fill_line(bitmap_rgb32 &bitmap, view_t *view, int color, int32_t y, int32_t x1, int32_t x2);
 	void        fill_quad(bitmap_rgb32 &bitmap, view_t *view, const quad_t& q) const;
+	void        export_quads(emu::geometry_export::sink &sink, const bitmap_rgb32 &bitmap, const view_t &view, int count) const;
 
 	void    fclip_push_quad_next(int level, quad_t& q, point_t *p1, point_t *p2, point_t *p3, point_t *p4);
 	void    fclip_push_quad(int level, quad_t& q);

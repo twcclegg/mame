@@ -244,6 +244,51 @@ on visionOS) as a final pass in the RealityKit presenter.
 
 ---
 
+## 7a. Per-game renderers: what libmame provides (added 2026-09-28)
+
+The direction is **renderers built for specific games** (Arkanoid first, on
+branch `claude/arkanoid-3d-visionos`), plus generic presentation for
+everything else. A per-game renderer can draw on four things from libmame:
+
+| Need | libmame API | Status |
+|---|---|---|
+| The emulated screen, framed tightly | `video_draw_pixels` (native res × integer scale, native size + aspect) and `MYOSD_ZOOM_TO_SCREEN` (crop artwork) | done |
+| Game state (sprites, tilemaps, RAM) | memory-read API | being added by the Arkanoid session |
+| True 3D geometry for polygon games | `geometry_frame` callback + `MYOSD_SUPPRESS_NATIVE_3D`, fed by `src/emu/geomexport.h` | done for **Sega Model 1**; other drivers need a hook each |
+| Lifecycle | `MYOSD_PAUSE` (pauses, flushes NVRAM, never undoes a user pause) | done; MAMEVision pauses when all its scenes are backgrounded |
+
+**Item 3 (a Metal primitive renderer for layered artwork): deferred.** It was
+proposed for two reasons: (a) crisp MAME UI text and (b) splitting
+bezel/backdrop artwork into separate spatial layers.
+- For (a): the native×integer frame keeps MAME's menus legible, if chunky.
+- For (b): per-game renderers will build their own surroundings (cabinets, playfields) rather than reuse MAME's 2D `.lay` artwork. Where artwork is wanted, it can come from a second render target with `set_zoom_to_screen(false)` and the screen hidden via view visibility toggles. That's much cheaper than re-implementing MAME's texture formats, palettes and blend modes in Metal.
+- The primitive-list path (`video_draw`) remains in libmame if a real need shows up.
+
+**Item 4 ("3D upscaling"): research result.** MAME's 3D arcade hardware is
+emulated with per-driver software rasterizers (29 users of `poly_manager`
+alone: Model 2/3, Namco System 22/23, Gaelco 3D, Midway V-Unit/Zeus,
+Voodoo-based systems, N64 and others). There are two ways to go beyond native resolution:
+1. **Rasterize at N× inside MAME.** This is per-driver surgery: scale vertex coordinates and bitmaps, and upscale the 2D layers alongside. It costs N² CPU time on a no-JIT M2, and it breaks drivers whose games read the framebuffer back (Voodoo). **Rejected.**
+2. **Export the geometry and let the host GPU render it.** Resolution-independent and **truly stereoscopic**, since the geometry keeps its real depth. It costs one hook per driver, at the point where the driver has camera-space polygons just before projecting them. **Chosen.**
+
+**Pilot: Sega Model 1** (Virtua Racing, Virtua Fighter, Star Wars Arcade, Wing War).
+- `model1_v.cpp` transforms into camera space, frustum-clips, then projects in `view_t::project_point()` with `s = c + (p/z·zoom + view)`.
+- Quads are flat-shaded, with their colour already lit and stored as RGB.
+- `draw_quads()` now exports each batch (quads plus that view's projection) when a sink is registered. It skips its own fill when asked, so the video frame keeps only the 2D layers (HUD, text) for compositing.
+- It's also CPU-friendly for us: v60 and TGP (MB86233) are interpreted, not DRC.
+
+The next driver candidates are Model 2, which projects in `model2_3d_project()` and adds textures (it would need a texture export too), and Namco System 22.
+
+**Host rendering of exported geometry: still open.** RealityKit `LowLevelMesh`
+can take per-frame vertex data, but it's unclear whether RealityKit's built-in
+materials honour a per-vertex colour attribute. Options:
+- a `ShaderGraphMaterial` that reads the colour from a UV channel;
+- grouping polygons by colour into mesh parts;
+- a Compositor Services Metal renderer, which gives full control and per-eye rendering.
+
+`GeometryStore` in MAMEVision already copies each frame into Swift arrays and
+documents how to rebuild the game's camera (vertical FOV = 2·atan((screen_h/2)/scale_y)).
+
 ## 8. Proposed milestones (for the Mac agent)
 
 0. **Prior-art checks (§1a):** see whether MAME4iOS from the App Store runs on the Vision Pro as an iPad app (a zero-build baseline to compare against). For phase 2, try adding an `xros` slice to ToddLa's `make-ios.sh`.
