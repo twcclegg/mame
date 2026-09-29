@@ -108,6 +108,49 @@ Lua script injects a synthetic playfield into the real `:videoram` and
 proves the names, the format and the decoder path. It says nothing about the
 real game, whose program never runs.
 
+## Developing on Linux (notes)
+
+These were learned in the Ubuntu 24.04 cloud container this was written in.
+
+- **Headless MAME with only the Arkanoid driver.** It takes about 50 minutes
+  on 4 cores and produces `./mame`, which is gitignored:
+  ```sh
+  sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev libfontconfig-dev libasound2-dev libxinerama-dev libxi-dev
+  make SOURCES=src/mame/taito/arkanoid.cpp USE_QTDEBUG=0 NO_OPENGL=1 NO_USE_MIDI=1 \
+       NO_USE_PORTAUDIO=1 NO_USE_PULSEAUDIO=1 -j4
+  ```
+  Run it with `-video none -sound none`. An `XDG_RUNTIME_DIR` error at startup
+  is harmless.
+- **GENie check for the `ios` OSD** without a Mac. It needs `--file` and
+  `--build-dir`, which the makefile normally passes:
+  ```sh
+  make genie
+  3rdparty/genie/bin/linux/genie --file=scripts/genie.lua --build-dir=build/ \
+      --osd=ios --targetos=visionos --gcc=visionos-sim-clang --PLATFORM=arm64 --NOASM=1 \
+      --with-emulator --target=mame --subtarget=tiny --gcc_version=17.0.0 gmake
+  rm -rf build/projects
+  ```
+- **Syntax-checking `src/osd/ios`:** use `clang++ -std=c++20 -fsyntax-only -DOSD_IOS -DLSB_FIRST -DNDEBUG -DCRLF=2`
+  with `-I src/osd -I src/emu -I src/lib -I src/lib/util -I src/devices -I src/osd/ios -I 3rdparty`.
+  A few warnings predate this work, and a stricter Mac build may reject them:
+  `video.cpp:114` (unused value), `iosmain.cpp:60` (missing field
+  initializer) and `enum : int` in `libmame.h` when compiled as C.
+- **Placeholder ROMs.** MAME runs a set whose files have wrong checksums, but
+  refuses if any file is *missing*. That includes the `alt_mcus` dumps and the
+  68705P5 device's 115-byte `bootstrap.bin`; `mame -listroms arkanoid` lists
+  them all. `ark3d_synth` writes every one.
+- **No Swift here.** There's no Swift toolchain in the container, and
+  download.swift.org is blocked, so the app can only be checked on a Mac.
+  When it first compiles, look at these first:
+  - The `content.subscribe` closure calls the `@MainActor` scene. That should
+    be fine because it's created in RealityView's main-actor `make` closure.
+  - These were written from documentation: `PointLightComponent`,
+    `PhysicallyBasedMaterial.clearcoat`, `DragGesture.targetedToAnyEntity()`
+    with `value.convert(_:from:to:)`, and `HandTrackingProvider`.
+- **Dead ends.** The hcs64.com "Arkanoid disassembly" is the **NES** game:
+  11 bricks wide, sprites DMA'd from `$200`, so none of it applies to the
+  arcade version. tcrf.net is blocked from the container.
+
 ## Validating with a real ROM (to do)
 
 ```sh
