@@ -26,6 +26,7 @@ targets:
       - path: Decoder
       # shared with MAMEVision, unchanged in behaviour
       - path: ../app/Sources/MAMEEngine.swift
+      - path: ../app/Sources/GeometryStore.swift     # referenced by MAMEEngine
       - path: ../app/Sources/GameControllerInput.swift
       - path: ../app/Sources/AppModel.swift          # ScreenEffect, PresentParams, PresentSettings
       - path: ../app/Sources/TheaterView.swift       # ScreenUpdater (the 2D screen in RealityKit)

@@ -141,9 +141,18 @@ These were learned in the Ubuntu 24.04 cloud container this was written in.
   them all. `ark3d_synth` writes every one.
 - **No Swift here.** There's no Swift toolchain in the container, and
   download.swift.org is blocked, so the app can only be checked on a Mac.
-  When it first compiles, look at these first:
+  A Mac agent has since built and run MAMEVision on the visionOS 26.5
+  Simulator with a byte-verified `arkanoid` set (see `../README.md`), so the
+  shared files (`MAMEEngine`, `ScreenUpdater`, shaders) are proven. That build
+  predates the state API, though: `src/osd/ios/state.cpp` and this app have
+  still never been compiled. The next step is for that Mac to build them and
+  run `ark3d_capture.lua` against the real ROM. When this app first compiles,
+  look at these first:
   - The `content.subscribe` closure calls the `@MainActor` scene. That should
     be fine because it's created in RealityView's main-actor `make` closure.
+  - The Mac run found `ScreenUpdater` needed `@MainActor` (RealityKit's
+    `LowLevelTexture` is main-actor-isolated). `PlayfieldScene` is already
+    `@MainActor` for the same reason.
   - These were written from documentation: `PointLightComponent`,
     `PhysicallyBasedMaterial.clearcoat`, `DragGesture.targetedToAnyEntity()`
     with `value.convert(_:from:to:)`, and `HandTrackingProvider`.
