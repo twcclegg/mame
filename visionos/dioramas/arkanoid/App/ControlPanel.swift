@@ -46,6 +46,7 @@ struct ControlPanel: View {
                         }
                     }
                     Toggle("Original screen", isOn: $model.showOriginalScreen)
+                    Toggle("Game background", isOn: $model.showGameBackground)
                 }
 
                 Section {

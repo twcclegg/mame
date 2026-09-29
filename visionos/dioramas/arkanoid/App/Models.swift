@@ -303,10 +303,8 @@ final class BannerModel: Entity {
         holder.position.y = 16 * px
         readyText.position.y = -2 * px
         roundText.position.y = 10 * px
-        for e in [roundText, readyText] {
-            e.components.set(GroundingShadowComponent(castsShadow: true))
-            holder.addChild(e)
-        }
+        // no grounding shadow: leaning back, it would throw a big smear on the floor
+        for e in [roundText, readyText] { holder.addChild(e) }
         addChild(holder)
         isEnabled = false
     }

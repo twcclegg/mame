@@ -22,6 +22,8 @@ final class ArkModel {
     }
     /// The original 2D picture as a small screen behind the playfield.
     var showOriginalScreen = true
+    /// The floor shows the round's background from the game, or a plain one.
+    var showGameBackground = ProcessInfo.processInfo.environment["DIORAMA_BACKGROUND"] != "0"
 
     private init() {
         ArkanoidStateReader.shared.install(on: MAMEEngine.shared)

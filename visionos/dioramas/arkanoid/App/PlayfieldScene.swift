@@ -462,8 +462,49 @@ final class PlayfieldScene {
             m.baseColor = .init(tint: UIColor(white: 0.55, alpha: 1), texture: .init(texture))
             m.roughness = .init(floatLiteral: 0.7)
             m.metallic = .init(floatLiteral: 0)
-            self?.floor.model?.materials = [m]
+            self?.backgroundMaterial = m
+            self?.applyFloor()
         }
+    }
+
+    /// The game's own background on the floor, or a plain one of ours (the
+    /// choice in the control window; also what an IP-free version would use).
+    var showGameBackground = true {
+        didSet { if showGameBackground != oldValue { applyFloor() } }
+    }
+    private var backgroundMaterial: RealityKit.Material?
+    private lazy var plainFloor: RealityKit.Material = {
+        var m = PhysicallyBasedMaterial()
+        m.baseColor = .init(tint: UIColor(red: 0.07, green: 0.08, blue: 0.12, alpha: 1))
+        // satin, not gloss: a glossy floor mirrors the room's bright spots
+        m.metallic = .init(floatLiteral: 0.2)
+        m.roughness = .init(floatLiteral: 0.6)
+        // a faint grid of brick-sized cells, so it reads as a board
+        if let grid = Self.gridImage(layout: layout),
+           let texture = try? TextureResource(image: grid, options: .init(semantic: .color)) {
+            m.baseColor = .init(tint: .white, texture: .init(texture))
+        }
+        return m
+    }()
+
+    private static func gridImage(layout: ark3d_layout) -> CGImage? {
+        let scale = 4
+        let w = Int(layout.field_right - layout.field_left) * scale
+        let h = Int(layout.field_bottom - layout.field_top) * scale
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.setFillColor(red: 0.07, green: 0.08, blue: 0.12, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(red: 0.13, green: 0.15, blue: 0.22, alpha: 1)
+        let bw = Int(layout.brick_w) * scale, bh = Int(layout.brick_h) * scale
+        for x in stride(from: 0, through: w, by: bw) { ctx.fill(CGRect(x: x, y: 0, width: 2, height: h)) }
+        for y in stride(from: 0, through: h, by: bh) { ctx.fill(CGRect(x: 0, y: y, width: w, height: 2)) }
+        return ctx.makeImage()
+    }
+
+    private func applyFloor() {
+        floor.model?.materials = [showGameBackground ? (backgroundMaterial ?? plainFloor) : plainFloor]
     }
 
     private func dropBricks(dt: Float) {

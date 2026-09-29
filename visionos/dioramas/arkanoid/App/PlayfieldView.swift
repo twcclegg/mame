@@ -67,6 +67,7 @@ struct PlayfieldView: View {
             }
         } update: { _, _ in
             scene.showDebugScreen = model.showOriginalScreen
+            scene.showGameBackground = model.showGameBackground
         } attachments: {
             Attachment(id: "hud") { HUDView() }
         }
