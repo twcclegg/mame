@@ -74,6 +74,7 @@ final class PlayfieldScene {
     private var lasers: [ModelEntity] = []
     private var smoothed: [ObjectIdentifier: SIMD2<Float>] = [:]
     private var debris: [(entity: ModelEntity, velocity: SIMD3<Float>, life: Float)] = []
+    private var shardMeshes: [MeshResource] = []
     private var gravity: SIMD3<Float> = [0, -1, 0]  // down in the room, board space
     /// Expanding, fading glows (breaks and explosions), driven per frame.
     private var flashes: [(entity: ModelEntity, age: Float, duration: Float, size: Float)] = []
@@ -205,11 +206,22 @@ final class PlayfieldScene {
         }
         let wallW = Float(layout.field_left) * s
         let h = Self.wallHeight
+        let tubes = !DioramaStyle.hasPlate          // floating: ribbed chrome tubes
+        let tubeR = min(wallW, h) * 0.45
+        if tubes {
+            wallMat.baseColor = .init(tint: UIColor(white: 0.93, alpha: 1))
+            wallMat.roughness = .init(floatLiteral: 0.06)
+            wallMat.clearcoat = .init(floatLiteral: 1)
+        }
         for x in [left / 2, right + (Float(ARK3D_VIEW_W) - right) / 2] {
-            let wall = ModelEntity(mesh: .generateBox(width: wallW, height: h, depth: depth + wallW, cornerRadius: wallW / 3),
+            let length = depth + wallW
+            let wall = ModelEntity(mesh: tubes ? .generateCylinder(height: length, radius: tubeR)
+                                               : .generateBox(width: wallW, height: h, depth: length, cornerRadius: wallW / 3),
                                    materials: [wallMat])
+            if tubes { wall.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0]) }
             wall.position = local(x, (top + bottom) / 2 - Float(layout.field_left) / 2, h / 2)
             field.addChild(wall)
+            if tubes { addRibs(along: [0, 0, 1], centre: wall.position, length: length, radius: tubeR, material: wallMat) }
         }
         // the top wall, in segments around the two enemy hatches
         let wallY = top - Float(layout.field_left) / 2
@@ -217,10 +229,14 @@ final class PlayfieldScene {
                                        (Float(ARK3D_GATE_RIGHT_COL) * 8, Float(ARK3D_GATE_RIGHT_COL + 4) * 8)]
         let segments: [(Float, Float)] = [(0, gates[0].0), (gates[0].1, gates[1].0), (gates[1].1, Float(ARK3D_VIEW_W))]
         for (x0, x1) in segments {
-            let seg = ModelEntity(mesh: .generateBox(width: (x1 - x0) * s, height: h, depth: wallW, cornerRadius: wallW / 3),
+            let length = (x1 - x0) * s
+            let seg = ModelEntity(mesh: tubes ? .generateCylinder(height: length, radius: tubeR)
+                                              : .generateBox(width: length, height: h, depth: wallW, cornerRadius: wallW / 3),
                                   materials: [wallMat])
+            if tubes { seg.orientation = simd_quatf(angle: .pi / 2, axis: [0, 0, 1]) }
             seg.position = local((x0 + x1) / 2, wallY, h / 2)
             field.addChild(seg)
+            if tubes { addRibs(along: [1, 0, 0], centre: seg.position, length: length, radius: tubeR, material: wallMat) }
         }
         buildGates(gates, wallY: wallY, wallMat: wallMat)
         buildWarp()
@@ -247,6 +263,19 @@ final class PlayfieldScene {
             field.addChild(key)
             key.look(at: local(Float(ARK3D_VIEW_W) / 2, (top + bottom) / 2, 0),
                      from: local(Float(ARK3D_VIEW_W) / 2 - 150, top - 130, 0.45), relativeTo: field)
+        }
+    }
+
+    /// Rings round a chrome tube every 3 cm, like the arcade's pipes.
+    private func addRibs(along axis: SIMD3<Float>, centre: SIMD3<Float>, length: Float, radius: Float, material: RealityKit.Material) {
+        let mesh = MeshResource.generateCylinder(height: 0.003, radius: radius * 1.18)
+        let turn = axis.x != 0 ? simd_quatf(angle: .pi / 2, axis: [0, 0, 1]) : simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+        let n = max(1, Int(length / 0.03))
+        for i in 0...n {
+            let rib = ModelEntity(mesh: mesh, materials: [material])
+            rib.orientation = turn
+            rib.position = centre + axis * (Float(i) / Float(n) - 0.5) * (length - 0.008)
+            field.addChild(rib)
         }
     }
 
@@ -396,8 +425,16 @@ final class PlayfieldScene {
 
         var laserMat = UnlitMaterial(color: UIColor(red: 1, green: 0.9, blue: 0.3, alpha: 1))
         laserMat.blending = .transparent(opacity: .init(floatLiteral: 0.9))
+        // modern: long beams of red light with a white-hot core, which bloom
+        var beamMat = PhysicallyBasedMaterial()
+        beamMat.baseColor = .init(tint: UIColor(red: 1, green: 0.2, blue: 0.3, alpha: 1))
+        beamMat.emissiveColor = .init(color: UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1))
+        beamMat.emissiveIntensity = 4
+        let modernLasers = DioramaStyle.current != .classic
         for _ in 0..<6 {
-            let l = ModelEntity(mesh: .generateBox(width: 1.5 * s, height: 1.5 * s, depth: 8 * s), materials: [laserMat])
+            let l = ModelEntity(mesh: modernLasers ? .generateBox(width: 1 * s, height: 1 * s, depth: 26 * s, cornerRadius: 0.5 * s)
+                                                   : .generateBox(width: 1.5 * s, height: 1.5 * s, depth: 8 * s),
+                                materials: [modernLasers ? beamMat : laserMat])
             l.isEnabled = false
             field.addChild(l)
             lasers.append(l)
@@ -856,9 +893,16 @@ final class PlayfieldScene {
     private func throwDebris(from p: SIMD3<Float>, material: RealityKit.Material, count: Int, speed: Float) {
         guard debris.count < 160 else { return }
         let s = Self.metresPerPixel
-        let mesh = MeshResource.generateBox(size: 2.5 * s)
+        // modern: thin shards of the brick's own glass, in a few shapes
+        if shardMeshes.isEmpty {
+            shardMeshes = (0..<5).map { _ in
+                .generateBox(width: Float.random(in: 2...5) * s, height: 0.7 * s, depth: Float.random(in: 1.5...3.5) * s, cornerRadius: 0.2 * s)
+            }
+        }
+        let cube = MeshResource.generateBox(size: 2.5 * s)
         for _ in 0..<count {
-            let piece = ModelEntity(mesh: mesh, materials: [material])
+            let piece = ModelEntity(mesh: DioramaStyle.current == .classic ? cube : shardMeshes.randomElement()!, materials: [material])
+            piece.orientation = simd_quatf(angle: Float.random(in: 0...(2 * .pi)), axis: simd_normalize(SIMD3<Float>.random(in: -1...1) + [0, 0.01, 0]))
             piece.position = p + SIMD3(Float.random(in: -4...4) * s, 0, Float.random(in: -2...2) * s)
             field.addChild(piece)
             let v = SIMD3<Float>(Float.random(in: -1...1), Float.random(in: 0.7...1.4), Float.random(in: -1...0.3)) * speed

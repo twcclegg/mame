@@ -36,6 +36,13 @@ private func shadowed(_ e: ModelEntity) -> ModelEntity {
 /// Rotation that lays a (y-axis) cylinder along x.
 private let alongX = simd_quatf(angle: .pi / 2, axis: [0, 0, 1])
 
+/// Every style but classic: polished chrome, light that blooms.
+private let modern = DioramaStyle.current != .classic
+private let chrome = pbr(UIColor(white: 0.93, alpha: 1), metallic: 1, roughness: 0.05, clearcoat: 1)
+private func neon(_ color: UIColor, _ intensity: Float) -> PhysicallyBasedMaterial {
+    pbr(color, roughness: 0.2, emissive: color, emissiveIntensity: intensity)
+}
+
 // MARK: - Vaus
 
 /// The Vaus: a silver hull that stretches with the game's width, red pods at
@@ -54,15 +61,17 @@ final class VausModel: Entity {
         super.init()
         let r = Self.height / 2 * px
         hull.model = ModelComponent(mesh: .generateCylinder(height: 1, radius: r * 0.8),
-                                    materials: [pbr(UIColor(white: 0.82, alpha: 1), metallic: 1, roughness: 0.15)])
+                                    materials: [modern ? chrome : pbr(UIColor(white: 0.82, alpha: 1), metallic: 1, roughness: 0.15)])
         hull.orientation = alongX
         hull.position.y = r
         addChild(shadowed(hull))
 
-        let podMat = pbr(UIColor(red: 0.8, green: 0.08, blue: 0.06, alpha: 1), metallic: 0.5, roughness: 0.2, clearcoat: 1,
-                         emissive: UIColor(red: 0.5, green: 0, blue: 0, alpha: 1), emissiveIntensity: 0.3)
-        let bandMat = pbr(UIColor(red: 0.2, green: 0.6, blue: 1, alpha: 1), roughness: 0.2,
-                          emissive: UIColor(red: 0.3, green: 0.7, blue: 1, alpha: 1), emissiveIntensity: 1.2)
+        // modern: all chrome, with rings of cyan light that bloom
+        let podMat = modern ? chrome : pbr(UIColor(red: 0.8, green: 0.08, blue: 0.06, alpha: 1), metallic: 0.5, roughness: 0.2, clearcoat: 1,
+                                           emissive: UIColor(red: 0.5, green: 0, blue: 0, alpha: 1), emissiveIntensity: 0.3)
+        let bandMat = modern ? neon(UIColor(red: 0.3, green: 0.85, blue: 1, alpha: 1), 3.5)
+                             : pbr(UIColor(red: 0.2, green: 0.6, blue: 1, alpha: 1), roughness: 0.2,
+                                   emissive: UIColor(red: 0.3, green: 0.7, blue: 1, alpha: 1), emissiveIntensity: 1.2)
         let barrelMat = pbr(UIColor(white: 0.35, alpha: 1), metallic: 1, roughness: 0.3)
         for (i, pod) in pods.enumerated() {
             let side: Float = i == 0 ? -1 : 1
@@ -75,7 +84,7 @@ final class VausModel: Entity {
             pod.position.y = r
             addChild(pod)
 
-            bands[i].model = ModelComponent(mesh: .generateCylinder(height: 1.2 * px, radius: r * 0.9), materials: [bandMat])
+            bands[i].model = ModelComponent(mesh: .generateCylinder(height: 1.2 * px, radius: r * (modern ? 1.04 : 0.9)), materials: [bandMat])
             bands[i].orientation = alongX
             bands[i].position.y = r
             addChild(bands[i])
@@ -223,6 +232,7 @@ final class CapsuleModel: Entity {
     private let roller = Entity()
     private let parts: [ModelEntity]
     private let letters: [ModelEntity]      // two, opposite each other, so one is up more often
+    private var rings: [ModelEntity] = []    // modern: neon rings round the ends
     private var type = -1
 
     required init() {
@@ -250,14 +260,36 @@ final class CapsuleModel: Entity {
             holder.addChild(letter)
             roller.addChild(holder)
         }
+        if modern {
+            for x in [-l / 2, l / 2] {
+                let ring = ModelEntity(mesh: .generateCylinder(height: 1.1 * px, radius: r * 1.06))
+                ring.orientation = alongX
+                ring.position.x = x
+                roller.addChild(ring)
+                rings.append(ring)
+            }
+        }
         addChild(roller)
     }
 
     func show(type: Int) {
         guard type != self.type else { return }
         self.type = type
-        let body = pbr(Self.colors[max(0, min(type, Self.colors.count - 1))], metallic: 0.2, roughness: 0.18, clearcoat: 1)
-        for p in parts { p.model?.materials = [body] }
+        let color = Self.colors[max(0, min(type, Self.colors.count - 1))]
+        if modern {
+            // smoked glass in the capsule's colour, lit by neon rings and letter
+            var body = pbr(color.withAlphaComponent(1), metallic: 0, roughness: 0.05, clearcoat: 1)
+            var c: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            color.getRed(&c.0, green: &c.1, blue: &c.2, alpha: &c.3)
+            body.baseColor = .init(tint: UIColor(red: c.0 * 0.35, green: c.1 * 0.35, blue: c.2 * 0.35, alpha: 1))
+            body.blending = .transparent(opacity: .init(floatLiteral: 0.75))
+            for p in parts { p.model?.materials = [body] }
+            for ring in rings { ring.model?.materials = [neon(color, 3.5)] }
+            for letter in letters { letter.model?.materials = [neon(color, 3)] }
+        } else {
+            let body = pbr(color, metallic: 0.2, roughness: 0.18, clearcoat: 1)
+            for p in parts { p.model?.materials = [body] }
+        }
         let name = String(cString: ark3d_capsule_name(Int32(type)))
         let mesh = MeshResource.generateText(name, extrusionDepth: 1.2 * px, font: .systemFont(ofSize: CGFloat(8 * px), weight: .black),
                                              containerFrame: .zero, alignment: .center, lineBreakMode: .byClipping)
@@ -359,14 +391,15 @@ final class BallModel: Entity {
         m.baseColor = .init(tint: .white)
         m.emissiveColor = .init(color: UIColor(red: 0.75, green: 0.95, blue: 1, alpha: 1))
         m.emissiveIntensity = 3
-        core = shadowed(ModelEntity(mesh: .generateSphere(radius: Self.radius * px), materials: [m]))
+        // modern: a chrome sphere, the trail carries the light
+        core = shadowed(ModelEntity(mesh: .generateSphere(radius: Self.radius * px), materials: [modern ? chrome : m]))
         super.init()
         core.components.set(PointLightComponent(color: UIColor(red: 0.6, green: 0.85, blue: 1, alpha: 1),
                                                 intensity: 400, attenuationRadius: 0.2))
         addChild(core)
         for i in 0..<6 {
-            var t = UnlitMaterial(color: UIColor(red: 0.55, green: 0.85, blue: 1, alpha: 1))
-            t.blending = .transparent(opacity: .init(floatLiteral: 0.45 * (1 - Float(i) / 6)))
+            var t = UnlitMaterial(color: modern ? UIColor(red: 0.75, green: 0.95, blue: 1, alpha: 1) : UIColor(red: 0.55, green: 0.85, blue: 1, alpha: 1))
+            t.blending = .transparent(opacity: .init(floatLiteral: (modern ? 0.7 : 0.45) * (1 - Float(i) / 6)))
             let e = ModelEntity(mesh: .generateSphere(radius: Self.radius * px * (0.85 - Float(i) * 0.1)), materials: [t])
             trail.append(e)
         }
