@@ -74,11 +74,18 @@ struct PlayfieldView: View {
             scene.subscription = content.subscribe(to: SceneEvents.Update.self) { event in
                 scene.update(deltaTime: Float(event.deltaTime))
             }
-        } update: { _, _ in
+        } update: { _, attachments in
             scene.showDebugScreen = model.showOriginalScreen
             scene.showGameBackground = model.showGameBackground
+            // frosted style: mount each brick's glass pane on its brick
+            for cell in scene.panes.cells {
+                if let pane = attachments.entity(for: cell.id) { scene.mount(pane: pane, for: cell) }
+            }
         } attachments: {
             Attachment(id: "hud") { HUDView() }
+            ForEach(scene.panes.cells) { cell in
+                Attachment(id: cell.id) { FrostedPaneView(pane: cell) }
+            }
         }
         .gesture(
             DragGesture(minimumDistance: 0)

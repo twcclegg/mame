@@ -95,7 +95,7 @@ final class PlayfieldScene {
         let updater = ScreenUpdater(frames: frames)
         screen = updater
         buildDebugScreen(updater.entity)
-        if BrickStyle.glass { buildGlassLighting() }
+        if DioramaStyle.usesStudio { buildGlassLighting() }
     }
 
     /// The studio environment for the glass to reflect, bloom (visionOS 27)
@@ -168,7 +168,7 @@ final class PlayfieldScene {
         floor.model = ModelComponent(mesh: .generateBox(width: (right - left) * s, height: 0.004, depth: depth),
                                      materials: [floorMat])
         floor.position = local((left + right) / 2, (top + bottom) / 2, -0.002)
-        field.addChild(floor)
+        if DioramaStyle.hasPlate { field.addChild(floor) }
 
         // the diorama's base: a bevelled gunmetal plinth under the whole board,
         // walls included, so it reads as an object on the table, not a sheet
@@ -182,13 +182,18 @@ final class PlayfieldScene {
                                                   depth: (bottom - baseTop) * s + 2 * rim, cornerRadius: 0.006),
                                materials: [baseMat])
         base.position = local(Float(ARK3D_VIEW_W) / 2, (baseTop + bottom) / 2, -0.004 - baseHeight / 2)
-        field.addChild(base)
+        if DioramaStyle.hasPlate { field.addChild(base) }
 
         // walls: left, right, top (the original's metal pipes)
         var wallMat = PhysicallyBasedMaterial()
         wallMat.baseColor = .init(tint: UIColor(white: 0.7, alpha: 1))
         wallMat.metallic = .init(floatLiteral: 1)
         wallMat.roughness = .init(floatLiteral: 0.3)
+        if !DioramaStyle.hasPlate {
+            // floating in the room: brushed aluminium rails
+            wallMat.baseColor = .init(tint: UIColor(red: 0.86, green: 0.87, blue: 0.9, alpha: 1))
+            wallMat.roughness = .init(floatLiteral: 0.38)
+        }
         let wallW = Float(layout.field_left) * s
         let h = Self.wallHeight
         for x in [left / 2, right + (Float(ARK3D_VIEW_W) - right) / 2] {
@@ -241,8 +246,10 @@ final class PlayfieldScene {
     private func buildGates(_ gates: [(Float, Float)], wallY: Float, wallMat: PhysicallyBasedMaterial) {
         let s = Self.metresPerPixel, h = Self.wallHeight, depth = Float(layout.field_left) * s
         var doorMat = wallMat
-        doorMat.baseColor = .init(tint: UIColor(white: 0.55, alpha: 1))
-        doorMat.roughness = .init(floatLiteral: 0.25)
+        if DioramaStyle.hasPlate {
+            doorMat.baseColor = .init(tint: UIColor(white: 0.55, alpha: 1))
+            doorMat.roughness = .init(floatLiteral: 0.25)
+        }
         var seamMat = UnlitMaterial(color: UIColor(red: 1, green: 0.15, blue: 0.1, alpha: 1))
         seamMat.blending = .transparent(opacity: .init(floatLiteral: 0.9))
         let holeMat = UnlitMaterial(color: UIColor(white: 0.03, alpha: 1))
@@ -253,7 +260,7 @@ final class PlayfieldScene {
             // a shallow dark pit, glowing on its floor
             let hole = ModelEntity(mesh: .generateBox(width: w * s, height: h * 0.25, depth: depth), materials: [holeMat])
             hole.position = local((x0 + x1) / 2, wallY, h * 0.125)
-            field.addChild(hole)
+            if DioramaStyle.hasPlate { field.addChild(hole) }       // floating, there's nothing to be a pit in
             let glow = ModelEntity(mesh: .generateBox(width: (w - 3) * s, height: 0.001, depth: depth * 0.7), materials: [glowMat])
             glow.position = local((x0 + x1) / 2, wallY, h * 0.25 + 0.0006)
             glow.isEnabled = false
@@ -476,7 +483,7 @@ final class PlayfieldScene {
         if simd_length(down) > 0 { gravity = simd_normalize(down) }
         field.isEnabled = true
         dropBricks(dt: dt)
-        if BrickStyle.glass { sweep(t: spin) }
+        if DioramaStyle.usesStudio { sweep(t: spin) }
         animate(dt: dt)
         updateDebris(dt: dt)
         updateFlashes(dt: dt)
@@ -503,6 +510,7 @@ final class PlayfieldScene {
                     }
                     brickShown[r][c] = 0
                     e.isEnabled = false
+                    if DioramaStyle.current == .frosted { setPane(r, c, rgb: nil, kind: 0, flashing: false) }
                     continue
                 }
                 let flashing = b.kind == UInt8(ARK3D_KIND_BRICK_SILVER.rawValue) && b.code != 0x16e
@@ -517,13 +525,14 @@ final class PlayfieldScene {
                     if brickShown[r][c] == 0 && !breaking {
                         brickDrop[r][c] = -(Float(r) * 0.03 + Float(c) * 0.008)
                     }
-                    if BrickStyle.glass {
+                    if DioramaStyle.current != .classic {
                         e.setGlass(rgb: b.rgb, kind: b.kind, flashing: flashing)
                     } else {
                         e.shell.model?.materials = [material(rgb: b.rgb, kind: kind)]
                     }
                     brickColor[r][c] = key
                     brickShown[r][c] = b.kind
+                    if DioramaStyle.current == .frosted { setPane(r, c, rgb: b.rgb, kind: b.kind, flashing: flashing) }
                 }
                 e.isEnabled = true
             }
@@ -534,7 +543,7 @@ final class PlayfieldScene {
 
     /// The floor shows the round's background pattern, rebuilt when it changes.
     private func updateFloor() {
-        guard state.pointee.in_play != 0, let art = store.art else { return }
+        guard DioramaStyle.hasPlate, state.pointee.in_play != 0, let art = store.art else { return }
         // key: the band the decoder learns the background from
         var key: [UInt32] = []
         let top = Int(layout.reference_top) / 8, bottom = Int(layout.reference_bottom) / 8
@@ -618,11 +627,34 @@ final class PlayfieldScene {
         }
     }
 
+    // MARK: - frosted panes (SwiftUI glass, see PlayfieldView)
+
+    /// The bricks the frosted style shows, for PlayfieldView's attachments.
+    let panes = FrostedPanes()
+    private var paneByCell: [Int: FrostedPane] = [:]
+
+    private func setPane(_ r: Int, _ c: Int, rgb: (UInt8, UInt8, UInt8)?, kind: UInt8, flashing: Bool) {
+        let cell = r * 64 + c
+        if let rgb {
+            paneByCell[cell] = FrostedPane(row: r, col: c, r: rgb.0, g: rgb.1, b: rgb.2, kind: kind, flashing: flashing)
+        } else {
+            paneByCell[cell] = nil
+        }
+        panes.cells = paneByCell.values.sorted { $0.id < $1.id }
+    }
+
+    /// PlayfieldView hands over each pane's entity once SwiftUI has made it.
+    func mount(pane: Entity, for cell: FrostedPane) {
+        guard cell.row < bricks.count, cell.col < bricks[cell.row].count else { return }
+        bricks[cell.row][cell.col].mount(pane: pane)
+    }
+
     private func clearBricks() {
         for r in 0..<bricks.count {
             for c in 0..<bricks[r].count where brickShown[r][c] != 0 {
                 bricks[r][c].isEnabled = false
                 brickShown[r][c] = 0
+                if DioramaStyle.current == .frosted { setPane(r, c, rgb: nil, kind: 0, flashing: false) }
                 brickDrop[r][c] = nil
             }
         }

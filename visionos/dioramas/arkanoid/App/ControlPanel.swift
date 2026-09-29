@@ -85,6 +85,8 @@ struct ControlPanel: View {
                 Task {
                     if case .opened = await openImmersiveSpace(id: ArkanoidDioramaApp.arenaID) {
                         model.arenaOpen = true
+                        // nothing between the viewer and the board
+                        dismissWindow(id: ArkanoidDioramaApp.controlsID)
                     }
                 }
             }
