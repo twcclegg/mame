@@ -44,7 +44,11 @@ final class PlayfieldScene {
     private var hasState = false
     private var layout = ark3d_layout()
 
-    private var bricks: [[ModelEntity]] = []
+    private var bricks: [[GlassBrick]] = []
+    /// The studio the glass reflects (image-based light), and lights that
+    /// sweep slowly across the bricks so reflections travel over them.
+    private let studio = Entity()
+    private let sweepLights = [Entity(), Entity()]
     private var brickShown: [[UInt8]] = []          // kind shown per cell, for break effects
     private var brickColor: [[UInt32]] = []
     private var brickHome: [[SIMD3<Float>]] = []    // resting position per cell
@@ -91,6 +95,47 @@ final class PlayfieldScene {
         let updater = ScreenUpdater(frames: frames)
         screen = updater
         buildDebugScreen(updater.entity)
+        if BrickStyle.glass { buildGlassLighting() }
+    }
+
+    /// The studio environment for the glass to reflect, bloom (visionOS 27)
+    /// and the sweeping lights.
+    private func buildGlassLighting() {
+        root.addChild(studio)
+        let field = self.field
+        Task { @MainActor [studio] in
+            guard let env = await GlassStudio.environment() else { return }
+            studio.components.set(ImageBasedLightComponent(source: .single(env), intensityExponent: 1.2))
+            // every model in the board reflects the studio, not the room
+            @MainActor func receive(_ e: Entity) {
+                if e is ModelEntity { e.components.set(ImageBasedLightReceiverComponent(imageBasedLight: studio)) }
+                e.children.forEach(receive)
+            }
+            receive(field)
+        }
+        if #available(visionOS 27.0, *) {
+            root.components.set(BloomComponent(scope: .hierarchical))
+            var bloom = BloomOptionsComponent()
+            bloom.strength = 0.6
+            bloom.threshold = 1.0
+            bloom.blurRadius = 0.6
+            root.components.set(bloom)
+        }
+        let colors = [UIColor(red: 0.75, green: 0.9, blue: 1, alpha: 1), UIColor(red: 1, green: 0.6, blue: 0.9, alpha: 1)]
+        for (i, light) in sweepLights.enumerated() {
+            light.components.set(PointLightComponent(color: colors[i], intensity: 260, attenuationRadius: 0.3))
+            field.addChild(light)
+        }
+    }
+
+    /// Two lights drifting across the brick wall, so reflections travel.
+    private func sweep(t: Float) {
+        for (i, light) in sweepLights.enumerated() {
+            let p = Float(i) * 2.1
+            let x = 112 + 105 * sin(t * 0.45 + p)
+            let y = Float(layout.grid_top) + 70 + 50 * sin(t * 0.31 + p * 1.7)
+            light.position = local(x, y, 0.07)
+        }
     }
 
     // MARK: - coordinates
@@ -272,13 +317,12 @@ final class PlayfieldScene {
     private func buildPools() {
         let s = Self.metresPerPixel
         let bw = Float(layout.brick_w) * s * 0.94, bd = Float(layout.brick_h) * s * 0.9
-        let brickMesh = MeshResource.generateBox(width: bw, height: Self.brickHeight, depth: bd, cornerRadius: 0.0015)
         let rows = Int(min(layout.grid_rows, ARK3D_MAX_GRID_ROWS)), cols = Int(min(layout.grid_cols, ARK3D_MAX_GRID_COLS))
         for r in 0..<rows {
-            var row: [ModelEntity] = []
+            var row: [GlassBrick] = []
             for c in 0..<cols {
-                let e = ModelEntity(mesh: brickMesh, materials: [SimpleMaterial()])
-                if !Self.upright { e.components.set(GroundingShadowComponent(castsShadow: true)) }
+                let e = GlassBrick(width: bw, height: Self.brickHeight, depth: bd)
+                if !Self.upright { e.shell.components.set(GroundingShadowComponent(castsShadow: true)) }
                 let x = Float(layout.grid_left) + (Float(c) + 0.5) * Float(layout.brick_w)
                 let y = Float(layout.grid_top) + (Float(r) + 0.5) * Float(layout.brick_h)
                 e.position = local(x, y, Self.brickHeight / 2)
@@ -432,6 +476,7 @@ final class PlayfieldScene {
         if simd_length(down) > 0 { gravity = simd_normalize(down) }
         field.isEnabled = true
         dropBricks(dt: dt)
+        if BrickStyle.glass { sweep(t: spin) }
         animate(dt: dt)
         updateDebris(dt: dt)
         updateFlashes(dt: dt)
@@ -472,7 +517,11 @@ final class PlayfieldScene {
                     if brickShown[r][c] == 0 && !breaking {
                         brickDrop[r][c] = -(Float(r) * 0.03 + Float(c) * 0.008)
                     }
-                    e.model?.materials = [material(rgb: b.rgb, kind: kind)]
+                    if BrickStyle.glass {
+                        e.setGlass(rgb: b.rgb, kind: b.kind, flashing: flashing)
+                    } else {
+                        e.shell.model?.materials = [material(rgb: b.rgb, kind: kind)]
+                    }
                     brickColor[r][c] = key
                     brickShown[r][c] = b.kind
                 }
@@ -737,10 +786,10 @@ final class PlayfieldScene {
     // MARK: - brick break effect
 
     /// A brick vanished from the grid: throw a few fragments of it around.
-    private func shatter(_ brick: ModelEntity, color: UIColor) {
+    private func shatter(_ brick: GlassBrick, color: UIColor) {
         Effects.sparks(in: field, gravity: gravity, at: brick.position + [0, Self.brickHeight / 2, 0], color: color)
         flash(at: brick.position + [0, Self.brickHeight / 2, 0], color: color, size: 20, duration: 0.25)
-        guard let mat = brick.model?.materials.first else { return }
+        guard let mat = brick.pieceMaterial else { return }
         throwDebris(from: brick.position, material: mat, count: 6, speed: 0.35)
     }
 
