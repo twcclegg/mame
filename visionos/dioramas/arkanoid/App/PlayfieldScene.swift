@@ -120,6 +120,20 @@ final class PlayfieldScene {
         floor.position = local((left + right) / 2, (top + bottom) / 2, -0.002)
         field.addChild(floor)
 
+        // the diorama's base: a bevelled gunmetal plinth under the whole board,
+        // walls included, so it reads as an object on the table, not a sheet
+        var baseMat = PhysicallyBasedMaterial()
+        baseMat.baseColor = .init(tint: UIColor(red: 0.16, green: 0.17, blue: 0.2, alpha: 1))
+        baseMat.metallic = .init(floatLiteral: 0.85)
+        baseMat.roughness = .init(floatLiteral: 0.35)
+        let baseHeight: Float = 0.028, rim: Float = 3 * s
+        let baseTop = top - Float(layout.field_left)
+        let base = ModelEntity(mesh: .generateBox(width: Float(ARK3D_VIEW_W) * s + 2 * rim, height: baseHeight,
+                                                  depth: (bottom - baseTop) * s + 2 * rim, cornerRadius: 0.006),
+                               materials: [baseMat])
+        base.position = local(Float(ARK3D_VIEW_W) / 2, (baseTop + bottom) / 2, -0.004 - baseHeight / 2)
+        field.addChild(base)
+
         // walls: left, right, top (the original's metal pipes)
         var wallMat = PhysicallyBasedMaterial()
         wallMat.baseColor = .init(tint: UIColor(white: 0.7, alpha: 1))
