@@ -8,7 +8,7 @@
 //
 // Each line (view pixels: 224 wide, 256 tall, y down; see ark3d.h):
 //   {"f":frame, "play":0|1,
-//    "bricks":[[row,col,kind,"rrggbb"],...],       kind: 4 brick, 5 silver, 6 gold
+//    "bricks":[[row,col,kind,"rrggbb",hit],...],   kind: 4 brick, 5 silver, 6 gold; hit 1 while silver flashes
 //    "vaus":{"x","y","w","phase","laser"} or null, phase: 1 normal, 2 appearing, 3 exploding
 //    "balls":[[x,y],...],
 //    "objs":[[kind,x,y,w,h,"rrggbb",capsule,enemy],...],  kind: 11 capsule, 12 enemy, 13 laser, 14 explosion
@@ -70,7 +70,9 @@ int main(int argc, char **argv)
             {
                 const ark3d_brick *b = &st.bricks[r][c];
                 if (!b->kind) continue;
-                printf("%s[%d,%d,%d,\"%02x%02x%02x\"]", n++ ? "," : "", r, c, b->kind, b->rgb[0], b->rgb[1], b->rgb[2]);
+                // [game] a silver brick's tiles leave 16e while the game animates a hit or its shimmer
+                int const hit = b->kind == ARK3D_KIND_BRICK_SILVER && b->code != 0x16e;
+                printf("%s[%d,%d,%d,\"%02x%02x%02x\",%d]", n++ ? "," : "", r, c, b->kind, b->rgb[0], b->rgb[1], b->rgb[2], hit);
             }
         printf("],\"vaus\":");
         if (st.vaus_visible)
