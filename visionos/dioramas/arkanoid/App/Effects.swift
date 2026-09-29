@@ -11,7 +11,9 @@ import UIKit
 enum Effects {
     /// A burst of sparks at `position` (in `parent`'s space) that removes
     /// itself afterwards.  `scale` sizes the burst (1 = a brick).
-    static func sparks(in parent: Entity, at position: SIMD3<Float>, color: UIColor, count: Int = 40, scale: Float = 1) {
+    /// `gravity` is down in the room, in `parent`'s space.
+    static func sparks(in parent: Entity, gravity: SIMD3<Float> = [0, -1, 0], at position: SIMD3<Float>, color: UIColor,
+                       count: Int = 40, scale: Float = 1) {
         let e = Entity()
         e.position = position
         var p = ParticleEmitterComponent()
@@ -29,7 +31,7 @@ enum Effects {
         p.mainEmitter.sizeMultiplierAtEndOfLifespan = 0.1
         p.mainEmitter.color = .evolving(start: .single(.white), end: .single(color))
         p.mainEmitter.blendMode = .additive
-        p.mainEmitter.acceleration = [0, -0.6, 0]
+        p.mainEmitter.acceleration = gravity * 0.6
         p.isEmitting = true
         p.burst()
         e.components.set(p)

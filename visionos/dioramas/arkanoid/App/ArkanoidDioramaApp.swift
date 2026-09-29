@@ -29,7 +29,8 @@ struct ArkanoidDioramaApp: App {
                 .onDisappear { model.volumeOpen = false }
         }
         .windowStyle(.volumetric)
-        .defaultSize(width: 0.7, height: 0.6, depth: 0.75, in: .meters)
+        .defaultSize(width: PlayfieldScene.upright ? 0.95 : 0.7, height: PlayfieldScene.upright ? 0.85 : 0.6,
+                     depth: PlayfieldScene.upright ? 0.35 : 0.75, in: .meters)
         // next to the control window rather than on top of it
         .defaultWindowPlacement { _, context in
             if let controls = context.windows.first(where: { $0.id == Self.controlsID }) {

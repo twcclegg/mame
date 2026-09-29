@@ -10,7 +10,7 @@ the video hardware's state and uses it to drive 3D objects:
 
 - the background tilemap becomes bricks (bevelled, with depth; silver and gold ones are metallic)
 - sprite RAM becomes the Vaus (metal body, red caps, stretches when enlarged), glowing balls with their own light, rolling colour-coded capsules, enemies and lasers
-- a floor and metal walls make a table-top box, and bricks shatter into fragments when they break
+- the board stands upright like a monitor, with the 3D depth coming out toward you (`DIORAMA_BOARD=table` lays it down as a tilted table top instead); metal walls frame it on a gunmetal base, and bricks shatter into fragments when they break
 
 Gameplay stays authentic and so does the sound, which is MAME's. The original
 2D picture can be shown as a small screen behind the far wall. You supply your
@@ -38,7 +38,7 @@ video_draw_pixels ──► FrameStore ─────────────�
 | `Tests/` | `make -C visionos/dioramas/arkanoid/Tests` runs the unit tests over synthetic buffers on Linux or macOS. `run_e2e.sh` runs a plumbing test through a real MAME build. `ark3d_dump` decodes captures. |
 | `lua/ark3d_capture.lua` | MAME Lua script. It records, every frame, exactly what the app reads, so the decoder can be checked offline against a real ROM. |
 | `lua/ark3d_bot.lua` | Plays unattended (coins, start, steering through the same spinner override as the app), for captures. |
-| `App/` | The SwiftUI and RealityKit app: control window, volumetric table-top, immersive "arena". `PlayfieldScene` builds the diorama from the decoded state; `Models` (Vaus, enemies, ball), `Effects` and `RomArt` (the game's own pixels: the floor's background pattern, capsule sprites) feed it. `ReplayPlayer` plays a capture instead of MAME. |
+| `App/` | The SwiftUI and RealityKit app: control window, a volume, and an immersive "arena". `PlayfieldScene` builds the diorama from the decoded state; `Models` (Vaus, enemies, capsules, ball, banner), `Effects` and `RomArt` (the game's own background pattern for the floor, optional) feed it. `ReplayPlayer` plays a capture instead of MAME. |
 | `project.yml` | XcodeGen project. It links the same `libmame.xcframework` as MAMEVision and reuses its `MAMEEngine`, `GameControllerInput`, `ScreenUpdater` and `Shaders.metal`. |
 
 The libmame side is generic and not Arkanoid-specific. It was added to
@@ -75,7 +75,7 @@ folder, using the Files app on the device or Finder file sharing. For the
 simulator, use the app container's Documents folder
 (`xcrun simctl get_app_container booted org.mamedev.diorama.arkanoid data`). Clones
 such as `arkanoidj` also need the parent `arkanoid.zip`. Then press **Start** in
-the control window, and the table-top volume opens. A launch argument starts a
+the control window, and the diorama's volume opens. A launch argument starts a
 set directly, for example `xcrun simctl launch booted org.mamedev.diorama.arkanoid arkanoid`.
 
 ### Controls

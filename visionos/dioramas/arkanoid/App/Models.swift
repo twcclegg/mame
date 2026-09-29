@@ -26,8 +26,10 @@ private func pbr(_ color: UIColor, metallic: Float = 0, roughness: Float = 0.35,
     return m
 }
 
+/// Grounding shadows for the table-top board; upright, the key light casts
+/// the shadows (PlayfieldScene).
 private func shadowed(_ e: ModelEntity) -> ModelEntity {
-    e.components.set(GroundingShadowComponent(castsShadow: true))
+    if !PlayfieldScene.upright { e.components.set(GroundingShadowComponent(castsShadow: true)) }
     return e
 }
 
@@ -234,7 +236,7 @@ final class CapsuleModel: Entity {
         letters = [ModelEntity(), ModelEntity()]
         super.init()
         for p in parts {
-            p.components.set(GroundingShadowComponent(castsShadow: true))
+            if !PlayfieldScene.upright { p.components.set(GroundingShadowComponent(castsShadow: true)) }
             roller.addChild(p)
         }
         let white = pbr(.white, metallic: 0.2, roughness: 0.25, emissive: .white, emissiveIntensity: 0.35)
@@ -299,7 +301,8 @@ final class BannerModel: Entity {
         center(readyText)
         // hover above the bricks, leaning back toward the player so it reads
         // whether the table is seen from above or tilted up
-        holder.orientation = simd_quatf(angle: -.pi / 4, axis: [1, 0, 0])
+        // (upright, it lies flat against the board, facing the viewer)
+        holder.orientation = simd_quatf(angle: PlayfieldScene.upright ? -.pi / 2 : -.pi / 4, axis: [1, 0, 0])
         holder.position.y = 16 * px
         readyText.position.y = -2 * px
         roundText.position.y = 10 * px

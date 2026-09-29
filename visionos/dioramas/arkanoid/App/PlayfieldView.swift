@@ -39,10 +39,19 @@ struct PlayfieldView: View {
                 scene.root.scale = SIMD3(repeating: pose.scale)
                 scene.root.position = pose.position
                 scene.root.orientation = simd_quatf(angle: pose.pitch, axis: [1, 0, 0])
+            } else if immersive && PlayfieldScene.upright {
+                // a big screen in front of you: 224 px -> ~1 m wide, at eye height
+                scene.root.scale = SIMD3(repeating: 1.8)
+                scene.root.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+                scene.root.position = [0, 1.35, -1.3]
             } else if immersive {
                 // a big table in front of you: 224 px -> ~1 m wide, at table height
                 scene.root.scale = SIMD3(repeating: 1.8)
                 scene.root.position = [0, 0.8, -0.9]
+            } else if PlayfieldScene.upright {
+                // standing up like a monitor, depth toward the viewer
+                scene.root.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+                scene.root.position = [0, 0, -0.08]
             } else {
                 // A volume opens at about eye height, so a flat table would be
                 // seen edge-on: tilt it toward the viewer like an arcade
@@ -56,8 +65,8 @@ struct PlayfieldView: View {
                     hud.position = scene.local(Float(ARK3D_VIEW_W) / 2, 0, 0.36)
                     scene.root.addChild(hud)
                 } else {
-                    // upright, above the far end of the tilted table
-                    hud.position = [0, 0.24, -0.3]
+                    // upright, above the board
+                    hud.position = PlayfieldScene.upright ? [0, 0.38, -0.05] : [0, 0.24, -0.3]
                     content.add(hud)
                 }
             }
@@ -104,7 +113,7 @@ extension PlayfieldView {
     static func closeupPose() -> (position: SIMD3<Float>, pitch: Float, scale: Float)? {
         let env = ProcessInfo.processInfo.environment
         guard env["DIORAMA_CLOSEUP"] == "1" else { return nil }
-        var v: [Float] = [1.4, -0.9, 60, 0.75]
+        var v: [Float] = PlayfieldScene.upright ? [1.3, -1.0, 90, 0.75] : [1.4, -0.9, 60, 0.75]
         if let pose = env["DIORAMA_POSE"] {
             let parts = pose.split(separator: " ").compactMap { Float($0) }
             if parts.count == 4 { v = parts }

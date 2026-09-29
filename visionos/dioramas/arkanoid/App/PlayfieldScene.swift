@@ -21,6 +21,10 @@ private let log = Logger(subsystem: "org.mamedev.diorama.arkanoid", category: "s
 @MainActor
 final class PlayfieldScene {
     nonisolated static let metresPerPixel: Float = 0.0025   // 224 px -> 0.56 m wide
+    /// The board stands upright facing the viewer, like a monitor, with the 3D
+    /// depth coming out toward them (the default); DIORAMA_BOARD=table lays it
+    /// down as a tilted table top instead.
+    nonisolated static let upright = ProcessInfo.processInfo.environment["DIORAMA_BOARD"] != "table"
     static let brickHeight: Float = 0.012
     static let wallHeight: Float = 0.03
 
@@ -65,6 +69,7 @@ final class PlayfieldScene {
     private var lasers: [ModelEntity] = []
     private var smoothed: [ObjectIdentifier: SIMD2<Float>] = [:]
     private var debris: [(entity: ModelEntity, velocity: SIMD3<Float>, life: Float)] = []
+    private var gravity: SIMD3<Float> = [0, -1, 0]  // down in the room, board space
     /// Expanding, fading glows (breaks and explosions), driven per frame.
     private var flashes: [(entity: ModelEntity, age: Float, duration: Float, size: Float)] = []
     private var flashMesh: MeshResource?
@@ -167,11 +172,23 @@ final class PlayfieldScene {
         touchSurface.position = local((left + right) / 2, (top + bottom) / 2, 0.06)
         field.addChild(touchSurface)
 
-        // soft light from above
+        // soft light from in front of the board
         let light = Entity()
         light.components.set(PointLightComponent(color: .white, intensity: 2000, attenuationRadius: 2))
         light.position = local(Float(ARK3D_VIEW_W) / 2, (top + bottom) / 2, 0.4)
         field.addChild(light)
+
+        // Upright, grounding shadows (cast straight down in the room) miss the
+        // board; a key light from the viewer's upper left casts real shadows
+        // onto it instead.
+        if Self.upright {
+            let key = Entity()
+            key.components.set(DirectionalLightComponent(color: .white, intensity: 1800))
+            key.components.set(DirectionalLightComponent.Shadow(maximumDistance: 1.5, depthBias: 1))
+            field.addChild(key)
+            key.look(at: local(Float(ARK3D_VIEW_W) / 2, (top + bottom) / 2, 0),
+                     from: local(Float(ARK3D_VIEW_W) / 2 - 150, top - 130, 0.45), relativeTo: field)
+        }
     }
 
     /// Each hatch: a dark opening with a glow deep inside, and two doors that
@@ -261,7 +278,7 @@ final class PlayfieldScene {
             var row: [ModelEntity] = []
             for c in 0..<cols {
                 let e = ModelEntity(mesh: brickMesh, materials: [SimpleMaterial()])
-                e.components.set(GroundingShadowComponent(castsShadow: true))
+                if !Self.upright { e.components.set(GroundingShadowComponent(castsShadow: true)) }
                 let x = Float(layout.grid_left) + (Float(c) + 0.5) * Float(layout.brick_w)
                 let y = Float(layout.grid_top) + (Float(r) + 0.5) * Float(layout.brick_h)
                 e.position = local(x, y, Self.brickHeight / 2)
@@ -331,7 +348,13 @@ final class PlayfieldScene {
         // ScreenUpdater sizes its plane for a 4.5 m theater screen; a vertical
         // game gets 4.5*0.75 = 3.375 m tall.  Scale that to ~0.3 m.
         holder.scale = SIMD3(repeating: 0.3 / 3.375)
-        holder.position = local(Float(ARK3D_VIEW_W) / 2, Float(layout.field_top) - 12, 0.17)
+        if Self.upright {
+            // beside the board, facing the viewer
+            holder.orientation = simd_quatf(angle: -.pi / 2, axis: [1, 0, 0])
+            holder.position = local(Float(ARK3D_VIEW_W) + 58, Float(ARK3D_VIEW_H) / 2, 0.01)
+        } else {
+            holder.position = local(Float(ARK3D_VIEW_W) / 2, Float(layout.field_top) - 12, 0.17)
+        }
         holder.addChild(screenEntity)
         field.addChild(holder)
         debugScreen = holder
@@ -362,12 +385,12 @@ final class PlayfieldScene {
             m.emissiveColor = .init(color: .white)
             m.emissiveIntensity = 1.5
         case Int(ARK3D_KIND_BRICK_GOLD.rawValue):
-            m.baseColor = .init(tint: UIColor(red: 1, green: 0.8, blue: 0.35, alpha: 1))
+            m.baseColor = .init(tint: UIColor(red: 1, green: 0.85, blue: 0.45, alpha: 1))
             m.metallic = .init(floatLiteral: 1)
-            m.roughness = .init(floatLiteral: 0.1)
+            m.roughness = .init(floatLiteral: 0.12)
             m.clearcoat = .init(floatLiteral: 1)
-            m.emissiveColor = .init(color: UIColor(red: 0.6, green: 0.4, blue: 0.05, alpha: 1))
-            m.emissiveIntensity = 0.25
+            m.emissiveColor = .init(color: UIColor(red: 0.75, green: 0.5, blue: 0.08, alpha: 1))
+            m.emissiveIntensity = 0.4
         default:
             m.baseColor = .init(tint: color)
             m.metallic = .init(floatLiteral: 0)
@@ -403,6 +426,10 @@ final class PlayfieldScene {
         // last round away quietly
         outOfPlay = hasState && state.pointee.in_play != 0 ? 0 : outOfPlay + dt
         if outOfPlay > 2.5 { clearBricks() }
+        // which way is down in the room, in the board's own space (it may
+        // stand upright or lie tilted)
+        let down = field.convert(direction: [0, -1, 0], from: nil)
+        if simd_length(down) > 0 { gravity = simd_normalize(down) }
         field.isEnabled = true
         dropBricks(dt: dt)
         animate(dt: dt)
@@ -650,7 +677,7 @@ final class PlayfieldScene {
             let at = local(o.x, o.y, BallModel.radius * Self.metresPerPixel)
             flash(at: at, color: UIColor(red: 0.3, green: 0.9, blue: 1, alpha: 1), size: 60, duration: 0.45)
             flash(at: at, color: .white, size: 22, duration: 0.2)
-            Effects.sparks(in: field, at: at, color: .cyan, count: 60, scale: 1.6)
+            Effects.sparks(in: field, gravity: gravity, at: at, color: .cyan, count: 60, scale: 1.6)
         }
         lastBallCount = ballCount
 
@@ -679,7 +706,7 @@ final class PlayfieldScene {
                     let color = UIColor(red: CGFloat(o.rgb.0) / 255, green: CGFloat(o.rgb.1) / 255, blue: CGFloat(o.rgb.2) / 255, alpha: 1)
                     let at = local(o.x, o.y, 8 * Self.metresPerPixel)
                     flash(at: at, color: .white, size: 26, duration: 0.3)
-                    Effects.sparks(in: field, at: at, color: color, count: 40, scale: 1.4)
+                    Effects.sparks(in: field, gravity: gravity, at: at, color: color, count: 40, scale: 1.4)
                     var m = PhysicallyBasedMaterial()
                     m.baseColor = .init(tint: color)
                     m.emissiveColor = .init(color: color)
@@ -711,7 +738,7 @@ final class PlayfieldScene {
 
     /// A brick vanished from the grid: throw a few fragments of it around.
     private func shatter(_ brick: ModelEntity, color: UIColor) {
-        Effects.sparks(in: field, at: brick.position + [0, Self.brickHeight / 2, 0], color: color)
+        Effects.sparks(in: field, gravity: gravity, at: brick.position + [0, Self.brickHeight / 2, 0], color: color)
         flash(at: brick.position + [0, Self.brickHeight / 2, 0], color: color, size: 20, duration: 0.25)
         guard let mat = brick.model?.materials.first else { return }
         throwDebris(from: brick.position, material: mat, count: 6, speed: 0.35)
@@ -719,7 +746,7 @@ final class PlayfieldScene {
 
     /// The Vaus blows up: a big flash, and its pieces flying.
     private func explodeVaus(at p: SIMD3<Float>) {
-        Effects.sparks(in: field, at: p, color: .orange, count: 150, scale: 2.5)
+        Effects.sparks(in: field, gravity: gravity, at: p, color: .orange, count: 150, scale: 2.5)
         flash(at: p, color: UIColor(red: 1, green: 0.6, blue: 0.2, alpha: 1), size: 70, duration: 0.6)
         flash(at: p, color: .white, size: 30, duration: 0.25)
         var red = PhysicallyBasedMaterial()
@@ -789,7 +816,7 @@ final class PlayfieldScene {
                 debris.remove(at: i)
                 continue
             }
-            debris[i].velocity.y -= 1.5 * dt
+            debris[i].velocity += gravity * 1.5 * dt
             let e = debris[i].entity
             e.position += debris[i].velocity * dt
             e.scale = SIMD3(repeating: max(0.05, debris[i].life / 0.7))
