@@ -855,6 +855,88 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         }
     }
 
+    // ---- the game's own state in RAM.  [game] Found by correlating captures
+    // (ARKANOID_STATE.md section 12).  Work RAM: the power-up in effect
+    // (c659: 1 L, 2 E, 3 C, 4 S, 5 B, 6 D, 7 P; set on a catch, cleared when
+    // the Vaus is lost or the round ends), the Vaus's form (c466: 0, 1
+    // enlarged, 3 laser), and three 12-byte ball records from c43c.  High
+    // RAM: the round (ed72, round - 1), the lives (ed71, including the Vaus
+    // in play) and the brick map (ed8b + 13*row + col).
+    st->power = st->vaus_form = -1;
+    st->round = st->lives = -1;
+    for (int i = 0; i < st->ball_count; i++)
+        st->balls[i].speed = -1;
+    for (int i = 0; i < st->object_count; i++)
+        st->objects[i].speed = -1;
+    if (in->work_ram != NULL && in->work_ram_bytes >= 0x800 && st->in_play)
+    {
+        static const int power_capsule[8] = { 0, ARK3D_CAPSULE_L, ARK3D_CAPSULE_E, ARK3D_CAPSULE_C,
+                                              ARK3D_CAPSULE_S, ARK3D_CAPSULE_B, ARK3D_CAPSULE_D, ARK3D_CAPSULE_P };
+        uint8_t const power = in->work_ram[0x659], form = in->work_ram[0x466];
+        st->power = power < 8 ? power_capsule[power] : 0;
+        st->vaus_form = form == 1 ? ARK3D_VAUS_FORM_ENLARGED : form == 3 ? ARK3D_VAUS_FORM_LASER : ARK3D_VAUS_FORM_NORMAL;
+
+        // balls: a record is active when +5 is 1; +3 speed, +4 direction, +8/+9
+        // position (view x = x - 11, y = y + 5, as drawn).  Direction: bits
+        // 3-4 the quadrant (0 +x+y, 1 +x-y, 2 -x+y, 3 -x-y), bits 0-2 the
+        // angle 2-6.  The ball moves speed/2 px a frame along the major axis
+        // and 1/2, 3/4 or all of that along the other; measured on about
+        // 60,000 frames, every direction and speeds 4-10.
+        for (int r = 0; r < 3; r++)
+        {
+            const uint8_t *b = in->work_ram + 0x43c + 12 * r;
+            if (b[5] != 1)
+                continue;
+            float const bx = (float)b[9] - 11, by = (float)b[8] + 5;
+            ark3d_object *best = NULL;
+            float best_d = 64;
+            for (int i = 0; i < st->ball_count; i++)
+            {
+                float const dx = st->balls[i].x - bx, dy = st->balls[i].y - by, d = dx * dx + dy * dy;
+                if (d < best_d) { best_d = d; best = &st->balls[i]; }
+            }
+            if (best == NULL)
+                continue;
+            int const quadrant = (b[4] >> 3) & 3, angle = b[4] & 7;
+            static const float minor[7] = { 0, 0, 0.5f, 0.75f, 1, 0.75f, 0.5f };
+            float const major = (float)b[3] / 2;
+            float const m = (angle >= 2 && angle <= 6) ? minor[angle] : 1;
+            // quadrants 0 and 3 run from x-major (angle 2) to y-major (6); 1 and 2 the other way
+            int const x_major = (quadrant == 0 || quadrant == 3) ? angle < 4 : angle > 4;
+            float const ax = x_major ? major : major * m, ay = x_major ? major * m : major;
+            best->vx = (quadrant & 2) ? -ax : ax;
+            best->vy = (quadrant & 1) ? -ay : ay;
+            best->speed = b[3];
+        }
+    }
+    if (in->high_ram != NULL && in->high_ram_bytes >= ARK3D_HIGH_RAM_BYTES && st->in_play)
+    {
+        const uint8_t *h = in->high_ram;
+        st->round = h[0xed72 - ARK3D_HIGH_RAM_BASE] + 1;
+        st->lives = h[0xed71 - ARK3D_HIGH_RAM_BASE];
+        // brick map: 0 empty, ff gold; else bits 0-1 are 3 for silver (hits
+        // left = (value >> 2) + 1) or 1/2 for a coloured brick (colour =
+        // value >> 2), 2 marking a brick that holds a capsule
+        if (!doh_round)
+            for (int r = 0; r < st->grid_rows && r < 18; r++)
+                for (int c = 0; c < st->grid_cols && c < 13; c++)
+                {
+                    uint8_t const v = h[0xed8b - ARK3D_HIGH_RAM_BASE + 13 * r + c];
+                    ark3d_brick *b = &st->bricks[r][c];
+                    if (!b->kind || v == 0)
+                        continue;
+                    if (v == 0xff)
+                        b->hits_left = 255;
+                    else if ((v & 3) == 3)
+                        b->hits_left = (uint8_t)((v >> 2) + 1);
+                    else
+                    {
+                        b->hits_left = 1;
+                        b->capsule = (v & 3) == 2;
+                    }
+                }
+    }
+
     // ---- scores: [game] 3 BCD bytes each, most significant first, in units
     // of 10 points: the player's at c4d7, the high score at c4df.  Checked
     // against the digits on screen over about 58,000 captured frames.

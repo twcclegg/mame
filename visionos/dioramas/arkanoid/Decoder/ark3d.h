@@ -91,6 +91,13 @@ typedef enum {
     ARK3D_VAUS_EXPLODING
 } ark3d_vaus_phase;
 
+// the Vaus's form (ark3d_state.vaus_form)
+typedef enum {
+    ARK3D_VAUS_FORM_NORMAL = 0,
+    ARK3D_VAUS_FORM_ENLARGED,       // E capsule
+    ARK3D_VAUS_FORM_LASER           // L capsule
+} ark3d_vaus_form;
+
 // DOH, the boss of round 33 (ark3d_state.doh)
 typedef enum {
     ARK3D_DOH_NONE = 0,         // not the DOH round
@@ -208,6 +215,10 @@ typedef struct {
                                     // colour-attribute guess without them)
     uint16_t code;                  // tile code of the left half (for calibration)
     uint8_t color;                  // colour attribute of the left half
+    uint8_t hits_left;              // hits still needed (silver: 2-5 at the start), 255 for
+                                    // gold, 0 if unknown (no high RAM); from the game's brick map
+    uint8_t capsule;                // 1: the game marked this brick for a capsule (it usually
+                                    // drops one when broken, if none is falling)
 } ark3d_brick;
 
 typedef struct {
@@ -219,6 +230,10 @@ typedef struct {
     uint8_t sprite;                 // sprite slot (0-15) of the first sprite
     uint16_t code;                  // sprite code (incl. bank)
     uint8_t color;
+    float vx, vy;                   // balls: velocity, view px per frame, from the game's ball
+                                    // records (0,0 while held on the Vaus)
+    int speed;                      // balls: the game's speed level (0 held, then 3-10 or so);
+                                    // -1 if unknown (no work RAM, or no matching record)
 } ark3d_object;
 
 typedef struct {
@@ -259,6 +274,11 @@ typedef struct {
     int spare_lives;                // Vaus icons in the bottom-left corner (lives
                                     // left besides the one in play); -1 if not in play
     int high_score;                 // -1 if unknown
+    int round;                      // current round (1-33), -1 if unknown (no high RAM)
+    int lives;                      // Vaus left including the one in play, -1 if unknown
+    int power;                      // ark3d_capsule of the power-up in effect (the last one
+                                    // caught; P too), 0 none, -1 if unknown (no work RAM)
+    int vaus_form;                  // ark3d_vaus_form, -1 if unknown
     ark3d_doh doh;                  // round 33's boss; phase NONE otherwise
 } ark3d_state;
 
