@@ -16,7 +16,11 @@
 -- Environment variables:
 --   SWEEP_PLAY    frames of play before clearing a round (default 40)
 --   SWEEP_ROUNDS  how many rounds to clear (default 31: stops on round 32;
---                 32 reaches DOH, round 33)
+--                 32 reaches DOH, round 33).  Some clears don't advance the
+--                 round, so the count can run ahead: ark3d_doh.lua stops the
+--                 sweep by setting the global ark3d_sweep_stop instead
+--
+-- It sets the global ark3d_sweep_cleared to the count so far.
 
 local mem = manager.machine.devices[":maincpu"].spaces["program"]
 local sram = manager.machine.memory.shares[":spriteram"]
@@ -39,12 +43,13 @@ sweep_subscription = emu.add_machine_frame_notifier(function()
 		local v = mem:read_u8(a)
 		if v >= 1 and v < 3 then mem:write_u8(a, 3) end
 	end
-	if cleared >= rounds or not vaus_up() then return end
+	if cleared >= rounds or _G.ark3d_sweep_stop or not vaus_up() then return end
 	played = played + 1
 	if played >= play_for then
 		mem:write_u8(0xed83, 0)
 		played = -600               -- let the round change before counting again
 		cleared = cleared + 1
+		_G.ark3d_sweep_cleared = cleared
 		print("ark3d_sweep: cleared round " .. cleared)
 	end
 end)

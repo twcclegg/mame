@@ -192,12 +192,12 @@ only mismatches are the frame where the display lags RAM by one update.
 | What | Status |
 |---|---|
 | Formulas in §2–§6 against MAME's source | done (above) |
-| Decoder on synthetic data | `make -C Tests`: 105 checks pass, `-Werror -Wconversion` |
+| Decoder on synthetic data | `make -C Tests`: 149 checks pass, `-Werror -Wconversion` |
 | Share, region and save-item names, capture format, decoding through a real MAME build | `Tests/run_e2e.sh` (placeholder ROMs); and real captures, below |
 | Codes, layout and scores against the real game | **done for rounds 1–2** (§10): about 36,000 frames of `arkanoid` (World) played by `lua/ark3d_bot.lua` on macOS MAME 0.289 |
 | Rounds 3–32 | swept with a test script that clears each round (bricks-remaining counter `ed83` set to 0) and holds the lives bytes (`c006`, `e8a8`, `ed71`, `ed76`); 4 background patterns, gold bricks, no other new brick codes |
 | Disruption (3 balls), the B warp gate | seen with `BOT_CATCH="B D"` (the bot chases those capsules) |
-| DOH (round 33) | not seen yet (deferred, twcclegg/mame-dioramas#1) |
+| DOH (round 33) | **done** (§11): fights captured with `lua/ark3d_doh.lua` (the sweep to round 33, then the bot), including a kill, the death sequence and the ending |
 
 ## 10. Verified codes [game, verified]
 
@@ -238,3 +238,45 @@ pens are all black, offset +4,+4 for the Vaus and +2,+2 for capsules)
 
 **Paddle.** The spinner moves the Vaus about +1 px per count (to the right),
 measured by the bot through the same analog override the app uses.
+
+## 11. DOH, round 33 [game, verified]
+
+Checked on about 10,000 frames of fights, one of them to the kill, recorded
+with `lua/ark3d_doh.lua`.
+
+- **The round.** Its background (codes `3c2-471`, colour 16/17) is used by no
+  other round. `ark3d_decode` checks view tile (6, 7) and reports no bricks
+  in this round.
+- **The face** is background tiles, an 8×12 block at view columns 10–17,
+  rows 7–18 (view x 80–143, y 56–151), in colour 16. It doesn't move.
+- **Mouth:** the whole block steps by `0x60` per stage. The top-left tile is
+  `5ce` (closed), `62e`, `68e`, `6ee` (open), a step every 5 frames. DOH rests
+  with the mouth open and closes it for about 60 frames at a time.
+- **Hit:** the face is drawn in colour 31 for exactly one frame, and the
+  score goes up 1000.
+- **Hit count:** `ed6b`, which is in RAM at e840-efff, outside the c000-c7ff
+  work RAM. No copy of it was found in c000-c7ff. **The game resets it to 0
+  when the Vaus is lost**, so DOH has to be hit 16 times in one life. The
+  16th hit destroys it.
+- **Projectiles:** sprites `2b1-2bc` in colour 15, 12 animation frames about
+  5 frames apart, with up to 4 on screen. They leave the mouth around view
+  (110–118, 106) and fall towards the Vaus.
+- **Death.** After the 16th hit:
+  1. the face cycles through colours 2–6 and back, 5 frames each (about 45
+     frames);
+  2. it goes back to colour 16 and closes its mouth;
+  3. it becomes a wireframe (codes `472-5d9`), in colour 7 and then fading
+     through 24–27 (about 150 frames);
+  4. the block is cleared to blank tiles (`20`) in colour 9, leaving a hole
+     in the wall for about 460 frames;
+  5. then comes the ending story screen, off the playfield (about 950
+     frames).
+  With the lives held (the test scripts), the game then starts round 33
+  again.
+- **Decoding** (`ark3d_state.doh`): phase ALIVE / DYING / GONE come from the
+  face's top-left tile, and `mouth` from its stage. `flash` is colour 31.
+  `hits` is read from `ed6b` when the input has `high_ram`. The decoder
+  can't tell the ending screen from the intro story on its own; the
+  exporter (`Tests/ark3d_export.c`) calls it ENDING when it follows DOH's
+  hole.
+

@@ -203,6 +203,7 @@ void ark3d_default_calibration(ark3d_calibration *cal)
     fill(cal->sprite_kind, 0x1be, 0x1c9, ARK3D_KIND_EXPLOSION);     // an enemy destroyed
     fill(cal->sprite_kind, 0x1ca, 0x1d3, ARK3D_KIND_TEXT);          // "ROUND n": its digits 0-9 (see banner_round)
     fill(cal->sprite_kind, 0x1d4, 0x1e0, ARK3D_KIND_TEXT);
+    fill(cal->sprite_kind, 0x2b1, 0x2bc, ARK3D_KIND_DOH_SHOT);      // DOH's projectile, 12 animation frames
     fill(cal->sprite_kind, 0x400, 0x7ff, ARK3D_KIND_OTHER);         // bank 1: the intro story
 
     // capsule letters in the order of ark3d_capsule: S C L E D B P
@@ -548,10 +549,54 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         st->warp_open = open;
     }
 
-    // ---- bricks
+    // ---- DOH, round 33's boss.  [game] The round's background (codes
+    // 3c2-471, seen nowhere else) says it's the DOH round.  DOH is tiles:
+    // its face is the 8x12 block at view columns 10-17, rows 7-18.  The
+    // face's top-left tile gives its state: 5ce, 62e, 68e, 6ee are the
+    // mouth closed to open (the whole block steps by 0x60) in colour 16,
+    // or 31 on the frame a hit lands.  After the 16th hit the face cycles
+    // through colours 2-6, closes, turns to a wireframe (codes 472-5d9,
+    // colours 7 then 24-27) and is cleared to blank tiles (20) in colour 9,
+    // leaving a hole.  The hit count is ed6b, in RAM outside c000-c7ff;
+    // the game resets it when the Vaus is lost.
+    int doh_round = 0;
+    {
+        uint16_t const bg = st->tile_code[7][6], face = st->tile_code[7][10];
+        uint8_t const face_color = st->tile_color[7][10] & 31;
+        doh_round = bg >= 0x3c2 && bg <= 0x471;
+        if (doh_round)
+        {
+            ark3d_doh *d = &st->doh;
+            d->x = 80; d->y = 56; d->w = 64; d->h = 96;
+            d->hits_max = 16;
+            int const stage = (face >= 0x5ce && face <= 0x6ee && (face - 0x5ce) % 0x60 == 0) ? (face - 0x5ce) / 0x60 : -1;
+            if (stage >= 0 && (face_color == 16 || face_color == 31))
+            {
+                d->phase = ARK3D_DOH_ALIVE;
+                d->flash = face_color == 31;
+            }
+            else if (face == 0x20 && face_color == 9)
+                d->phase = ARK3D_DOH_GONE;
+            else if (face == 0x20)
+                d->phase = ARK3D_DOH_ALIVE;         // wiped for a moment while the round is redrawn
+            else
+                d->phase = ARK3D_DOH_DYING;
+            d->mouth = stage >= 0 ? (float)stage / 3.0f : 0;
+            size_t const hits_at = 0xed6b - 0xe840;
+            d->hits = (in->high_ram != NULL && in->high_ram_bytes > hits_at) ? in->high_ram[hits_at] : -1;
+            // after the last hit the face goes back to colour 16 for a few
+            // frames to close its mouth: that's still dying
+            if (d->phase == ARK3D_DOH_ALIVE && d->hits >= d->hits_max)
+                d->phase = ARK3D_DOH_DYING;
+            if (d->phase == ARK3D_DOH_DYING || d->phase == ARK3D_DOH_GONE)
+                d->hits = d->hits_max;
+        }
+    }
+
+    // ---- bricks (none in the DOH round: its face would read as bricks)
     st->grid_cols = layout.grid_cols < ARK3D_MAX_GRID_COLS ? layout.grid_cols : ARK3D_MAX_GRID_COLS;
     st->grid_rows = layout.grid_rows < ARK3D_MAX_GRID_ROWS ? layout.grid_rows : ARK3D_MAX_GRID_ROWS;
-    for (int br = 0; br < st->grid_rows; br++)
+    for (int br = 0; br < st->grid_rows && !doh_round; br++)
         for (int bc = 0; bc < st->grid_cols; bc++)
         {
             int const x = layout.grid_left + bc * layout.brick_w;
@@ -840,7 +885,7 @@ const char *ark3d_kind_name(int kind)
     static const char *const names[ARK3D_KIND_COUNT] = {
         "unknown", "background", "shadow", "wall", "brick", "silver", "gold", "text",
         "vaus", "vaus_laser", "ball", "capsule", "enemy", "laser", "explosion", "other",
-        "vaus_appearing", "vaus_exploding"
+        "vaus_appearing", "vaus_exploding", "doh_shot"
     };
     return (kind >= 0 && kind < ARK3D_KIND_COUNT) ? names[kind] : "?";
 }

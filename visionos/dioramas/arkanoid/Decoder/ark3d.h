@@ -77,6 +77,7 @@ typedef enum {
     ARK3D_KIND_OTHER,
     ARK3D_KIND_VAUS_APPEARING,  // the Vaus materialising at the start of a life
     ARK3D_KIND_VAUS_EXPLODING,  // the Vaus blowing up after losing the ball
+    ARK3D_KIND_DOH_SHOT,        // DOH's projectile (round 33)
     ARK3D_KIND_COUNT
 } ark3d_kind;
 
@@ -87,6 +88,25 @@ typedef enum {
     ARK3D_VAUS_APPEARING,
     ARK3D_VAUS_EXPLODING
 } ark3d_vaus_phase;
+
+// DOH, the boss of round 33 (ark3d_state.doh)
+typedef enum {
+    ARK3D_DOH_NONE = 0,         // not the DOH round
+    ARK3D_DOH_ALIVE,
+    ARK3D_DOH_DYING,            // after the last hit: colour cycle, then wireframe
+    ARK3D_DOH_GONE,             // a hole in the wall where the face was
+    ARK3D_DOH_ENDING            // the story screen that follows (no playfield)
+} ark3d_doh_phase;
+
+typedef struct {
+    int phase;                      // ark3d_doh_phase
+    float x, y, w, h;               // the face, view pixels (top-left, size)
+    int hits;                       // hits taken; the game resets it to 0 when the
+                                    // Vaus is lost.  -1 if unknown (no high RAM)
+    int hits_max;                   // hits that destroy DOH
+    int flash;                      // 1 on the frame a hit lands
+    float mouth;                    // 0 closed .. 1 open
+} ark3d_doh;
 
 // power-up capsules, identified by their colour
 typedef enum {
@@ -151,6 +171,8 @@ typedef struct {
     int flip_x, flip_y;             // d008 bits 0,1 (cocktail); informational
     const uint8_t *work_ram;        // optional: c000-c7ff (2 KB), for the scores
     size_t work_ram_bytes;
+    const uint8_t *high_ram;        // optional: e840-efff (0x7c0 bytes), for DOH's hits
+    size_t high_ram_bytes;
 } ark3d_input;
 
 //------------------------------------------------------------
@@ -235,6 +257,7 @@ typedef struct {
     int spare_lives;                // Vaus icons in the bottom-left corner (lives
                                     // left besides the one in play); -1 if not in play
     int high_score;                 // -1 if unknown
+    ark3d_doh doh;                  // round 33's boss; phase NONE otherwise
 } ark3d_state;
 
 //------------------------------------------------------------

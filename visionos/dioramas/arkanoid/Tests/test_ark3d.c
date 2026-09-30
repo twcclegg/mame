@@ -305,6 +305,73 @@ static void test_default_calibration(void)
     CHECK_NEAR(st.warp_open, 1);
 }
 
+// DOH, round 33: the numbers are from captures of a real fight (ARKANOID_STATE.md)
+static void test_doh(void)
+{
+    static ark3d_calibration cal;
+    ark3d_default_calibration(&cal);
+    static uint8_t high[0x7c0];
+
+    build_screen();
+    memset(spriteram, 0, sizeof(spriteram));
+    ark3d_input in;
+    memset(&in, 0, sizeof(in));
+    in.videoram = videoram;
+    in.spriteram = spriteram;
+    ark3d_state st;
+
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.doh.phase, ARK3D_DOH_NONE);         // an ordinary round
+
+    // the DOH round's background, and the face with its mouth open
+    put_tile(6, 7, 0x3de, 17);
+    for (int c = 10; c < 18; c++)
+        for (int r = 7; r < 19; r++)
+            put_tile(c, r, 0x6ee + (r - 7) + 12 * (c - 10), 16);
+    put_sprite(0, 110, 120, 0x2b3, 15);             // a projectile
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.doh.phase, ARK3D_DOH_ALIVE);
+    CHECK_NEAR(st.doh.mouth, 1);
+    CHECK_EQ(st.doh.flash, 0);
+    CHECK_EQ(st.doh.hits, -1);                      // no high RAM
+    CHECK_EQ(st.doh.hits_max, 16);
+    CHECK_NEAR(st.doh.x, 80);
+    CHECK_NEAR(st.doh.h, 96);
+    CHECK_EQ(st.object_count, 1);
+    CHECK_EQ(st.objects[0].kind, ARK3D_KIND_DOH_SHOT);
+    int bricks = 0;
+    for (int r = 0; r < st.grid_rows; r++)
+        for (int c = 0; c < st.grid_cols; c++)
+            bricks += st.bricks[r][c].kind != 0;
+    CHECK_EQ(bricks, 0);                            // the face isn't bricks
+
+    // hit: colour 31 for a frame; the count is ed6b
+    high[0xed6b - 0xe840] = 5;
+    in.high_ram = high;
+    in.high_ram_bytes = sizeof(high);
+    put_tile(10, 7, 0x6ee, 31);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.doh.flash, 1);
+    CHECK_EQ(st.doh.hits, 5);
+
+    // mouth closed; then, after the 16th hit, still colour 16 but dying
+    put_tile(10, 7, 0x5ce, 16);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_NEAR(st.doh.mouth, 0);
+    high[0xed6b - 0xe840] = 16;
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.doh.phase, ARK3D_DOH_DYING);
+
+    // the wireframe, then the hole
+    put_tile(10, 7, 0x497, 7);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.doh.phase, ARK3D_DOH_DYING);
+    put_tile(10, 7, 0x20, 9);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.doh.phase, ARK3D_DOH_GONE);
+    CHECK_EQ(st.doh.hits, 16);
+}
+
 static void test_bad_input(void)
 {
     ark3d_state st;
@@ -325,6 +392,7 @@ int main(void)
     test_playfield(&g, 0);
     test_banks_and_calibration(&g);
     test_default_calibration();
+    test_doh();
     test_bad_input();
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
