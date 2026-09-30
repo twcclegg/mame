@@ -10,7 +10,7 @@
 -- It reads exactly what the app reads through libmame (myosd_* in
 -- src/osd/ios/libmame.h), in the same order: the gfx1 and proms regions once,
 -- then every frame the videoram and spriteram shares, main CPU RAM
--- c000-c7ff, and the driver's latched d008 bits (flip, gfx bank, palette
+-- c000-c7ff and e840-efff, and the driver's latched d008 bits (flip, gfx bank, palette
 -- bank) from its save-state items.  The file format is documented in
 -- Tests/ark3d_dump.c.
 --
@@ -85,7 +85,7 @@ end
 
 local file = need("output file " .. out_path, io.open(out_path, "wb"))
 local gfx_data, prom_data = region_bytes(gfx1), region_bytes(proms)
-file:write("ARK3DCAP", string.pack("<I4I4I4", 1, #gfx_data, #prom_data), gfx_data, prom_data)
+file:write("ARK3DCAP", string.pack("<I4I4I4", 2, #gfx_data, #prom_data), gfx_data, prom_data)
 print(string.format("ark3d_capture: writing %s (gfx1 %d bytes, proms %d bytes)", out_path, #gfx_data, #prom_data))
 
 local inject
@@ -127,9 +127,10 @@ subscription = emu.add_machine_frame_notifier(function()
 	local vram = share_bytes(videoram, 0x800)
 	local sram = share_bytes(spriteram, 0x40)
 	local wram = program:read_range(0xc000, 0xc7ff, 8)
+	local hram = program:read_range(0xe840, 0xefff, 8)
 	file:write("FRME", string.pack("<I4BBBB", frame & 0xffffffff,
 		read_item(gfxbank), read_item(palettebank), read_item(flip_x), read_item(flip_y)),
-		vram, sram, wram)
+		vram, sram, wram, hram)
 	written = written + 1
 
 	if log_every > 0 and written % log_every == 0 then

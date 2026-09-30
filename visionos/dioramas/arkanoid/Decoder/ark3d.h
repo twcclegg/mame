@@ -33,6 +33,8 @@ extern "C" {
 
 #define ARK3D_VIDEORAM_BYTES   0x800    // e000-e7ff: 32x32 tiles, 2 bytes each
 #define ARK3D_SPRITERAM_BYTES  0x40     // e800-e83f: 16 sprites, 4 bytes each
+#define ARK3D_HIGH_RAM_BASE    0xe840  // RAM after the sprites (e840-efff): DOH's hit count
+#define ARK3D_HIGH_RAM_BYTES   0x7c0
 #define ARK3D_NUM_SPRITES      16
 #define ARK3D_GFX_BYTES        0x18000  // gfx1: 4096 8x8 chars, 3 bitplanes of 0x8000
 #define ARK3D_PROM_BYTES       0x600    // proms: 512 entries x R,G,B nibbles
@@ -171,7 +173,7 @@ typedef struct {
     int flip_x, flip_y;             // d008 bits 0,1 (cocktail); informational
     const uint8_t *work_ram;        // optional: c000-c7ff (2 KB), for the scores
     size_t work_ram_bytes;
-    const uint8_t *high_ram;        // optional: e840-efff (0x7c0 bytes), for DOH's hits
+    const uint8_t *high_ram;        // optional: e840-efff (ARK3D_HIGH_RAM_BYTES), for DOH's hits
     size_t high_ram_bytes;
 } ark3d_input;
 

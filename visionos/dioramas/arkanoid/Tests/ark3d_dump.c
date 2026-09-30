@@ -13,9 +13,10 @@
 //                                          where, over the whole capture
 //
 // Capture format (little-endian), written by ark3d_capture.lua:
-//   "ARK3DCAP" u32 version(1) u32 gfx_bytes u32 prom_bytes  gfx  proms
+//   "ARK3DCAP" u32 version(1 or 2) u32 gfx_bytes u32 prom_bytes  gfx  proms
 //   then per frame: "FRME" u32 frame u8 gfxbank u8 palettebank u8 flip_x
-//   u8 flip_y, videoram[0x800], spriteram[0x40], workram[0x800]
+//   u8 flip_y, videoram[0x800], spriteram[0x40], workram[0x800] (c000-c7ff),
+//   and in version 2 high_ram[0x7c0] (e840-efff)
 
 #include "ark3d.h"
 
@@ -33,7 +34,10 @@ typedef struct {
     uint8_t videoram[ARK3D_VIDEORAM_BYTES];
     uint8_t spriteram[ARK3D_SPRITERAM_BYTES];
     uint8_t workram[WORKRAM_BYTES];
+    uint8_t highram[ARK3D_HIGH_RAM_BYTES];
 } record;
+
+static int capture_version;
 
 static int read_record(FILE *f, record *r)
 {
@@ -47,7 +51,8 @@ static int read_record(FILE *f, record *r)
     r->flip_y = hdr[11];
     return fread(r->videoram, 1, sizeof(r->videoram), f) == sizeof(r->videoram) &&
            fread(r->spriteram, 1, sizeof(r->spriteram), f) == sizeof(r->spriteram) &&
-           fread(r->workram, 1, sizeof(r->workram), f) == sizeof(r->workram);
+           fread(r->workram, 1, sizeof(r->workram), f) == sizeof(r->workram) &&
+           (capture_version < 2 || fread(r->highram, 1, sizeof(r->highram), f) == sizeof(r->highram));
 }
 
 static void print_detail(const ark3d_state *st)
@@ -122,11 +127,12 @@ int main(int argc, char **argv)
         return 1;
     }
     uint8_t hdr[20];
-    if (fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr) || memcmp(hdr, "ARK3DCAP", 8) != 0 || rd32(hdr + 8) != 1)
+    if (fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr) || memcmp(hdr, "ARK3DCAP", 8) != 0 || rd32(hdr + 8) < 1 || rd32(hdr + 8) > 2)
     {
-        fprintf(stderr, "%s: not an ark3d capture (version 1)\n", argv[1]);
+        fprintf(stderr, "%s: not an ark3d capture (version 1 or 2)\n", argv[1]);
         return 1;
     }
+    capture_version = (int)rd32(hdr + 8);
     uint32_t const gfx_bytes = rd32(hdr + 12), prom_bytes = rd32(hdr + 16);
     uint8_t *gfx = malloc(gfx_bytes ? gfx_bytes : 1), *proms = malloc(prom_bytes ? prom_bytes : 1);
     if (fread(gfx, 1, gfx_bytes, f) != gfx_bytes || fread(proms, 1, prom_bytes, f) != prom_bytes)
@@ -162,6 +168,11 @@ int main(int argc, char **argv)
         in.flip_y = rec.flip_y;
         in.work_ram = rec.workram;
         in.work_ram_bytes = sizeof(rec.workram);
+        if (capture_version >= 2)
+        {
+            in.high_ram = rec.highram;
+            in.high_ram_bytes = sizeof(rec.highram);
+        }
         ark3d_decode(&in, NULL, graphics.valid ? &graphics : NULL, heuristic ? NULL : &calibration, &st);
         n++;
 

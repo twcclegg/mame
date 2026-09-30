@@ -40,9 +40,11 @@ final class ReplayPlayer: @unchecked Sendable {
 
     // capture format: see Tests/ark3d_dump.c
     private static let headerBytes = 20
-    private static let frameBytes = 12 + Int(ARK3D_VIDEORAM_BYTES) + Int(ARK3D_SPRITERAM_BYTES) + 0x800
+    private static let frameBytesV1 = 12 + Int(ARK3D_VIDEORAM_BYTES) + Int(ARK3D_SPRITERAM_BYTES) + 0x800
+    private static let workRAMOffset = 12 + Int(ARK3D_VIDEORAM_BYTES) + Int(ARK3D_SPRITERAM_BYTES)
 
     private let data: Data
+    private let version: UInt32              // 2 adds e840-efff to each frame
     private var frameOffsets: [Int] = []
     private var frameNumbers: [UInt32] = []
     private let graphics = UnsafeMutablePointer<ark3d_graphics>.allocate(capacity: 1)
@@ -58,12 +60,18 @@ final class ReplayPlayer: @unchecked Sendable {
             return nil
         }
         self.data = data
+        version = data.readU32(at: 8)
+        guard version == 1 || version == 2 else {
+            log.error("capture version \(self.version) not supported: \(url.path, privacy: .public)")
+            return nil
+        }
+        let frameBytes = Self.frameBytesV1 + (version >= 2 ? Int(ARK3D_HIGH_RAM_BYTES) : 0)
         let gfxBytes = Int(data.readU32(at: 12)), promBytes = Int(data.readU32(at: 16))
         var offset = Self.headerBytes + gfxBytes + promBytes
-        while offset + Self.frameBytes <= data.count {
+        while offset + frameBytes <= data.count {
             frameOffsets.append(offset)
             frameNumbers.append(data.readU32(at: offset + 4))
-            offset += Self.frameBytes
+            offset += frameBytes
         }
         guard !frameOffsets.isEmpty else { return nil }
 
@@ -118,8 +126,12 @@ final class ReplayPlayer: @unchecked Sendable {
             input.flip_y = Int32(base[11])
             input.videoram = UnsafePointer(base + 12)
             input.spriteram = UnsafePointer(base + 12 + Int(ARK3D_VIDEORAM_BYTES))
-            input.work_ram = UnsafePointer(base + 12 + Int(ARK3D_VIDEORAM_BYTES) + Int(ARK3D_SPRITERAM_BYTES))
+            input.work_ram = UnsafePointer(base + Self.workRAMOffset)
             input.work_ram_bytes = 0x800
+            if version >= 2 {
+                input.high_ram = UnsafePointer(base + Self.workRAMOffset + 0x800)
+                input.high_ram_bytes = Int(ARK3D_HIGH_RAM_BYTES)
+            }
             ark3d_decode(&input, &layout, graphics.pointee.valid != 0 ? UnsafePointer(graphics) : nil,
                          UnsafePointer(calibration), decoded)
         }

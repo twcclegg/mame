@@ -582,7 +582,7 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
             else
                 d->phase = ARK3D_DOH_DYING;
             d->mouth = stage >= 0 ? (float)stage / 3.0f : 0;
-            size_t const hits_at = 0xed6b - 0xe840;
+            size_t const hits_at = 0xed6b - ARK3D_HIGH_RAM_BASE;
             d->hits = (in->high_ram != NULL && in->high_ram_bytes > hits_at) ? in->high_ram[hits_at] : -1;
             // after the last hit the face goes back to colour 16 for a few
             // frames to close its mouth: that's still dying

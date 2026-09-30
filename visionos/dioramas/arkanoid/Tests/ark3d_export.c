@@ -6,8 +6,9 @@
 //
 //   ark3d_export capture.bin [first last] [--ram high.bin] > trace.jsonl
 //
-// --ram adds e840-efff per frame (u32 frame, then 0x7c0 bytes, as written by
-// a test script), which DOH's hit count needs; without it "hits" is -1.
+// Version 2 captures carry e840-efff, which DOH's hit count needs.  For a
+// version 1 capture, --ram adds it from a side file (per frame a u32 frame,
+// then 0x7c0 bytes); without either, "hits" is -1.
 //
 // Each line (view pixels: 224 wide, 256 tall, y down; see ark3d.h):
 //   {"f":frame, "play":0|1,
@@ -61,7 +62,8 @@ int main(int argc, char **argv)
     if (f == NULL) { perror(argv[1]); return 1; }
     uint8_t hdr[20];
     if (fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr) || memcmp(hdr, "ARK3DCAP", 8) != 0) { fprintf(stderr, "not a capture\n"); return 1; }
-    uint32_t const gfx_bytes = rd32(hdr + 12), prom_bytes = rd32(hdr + 16);
+    uint32_t const version = rd32(hdr + 8), gfx_bytes = rd32(hdr + 12), prom_bytes = rd32(hdr + 16);
+    if (version < 1 || version > 2) { fprintf(stderr, "capture version %u not supported\n", version); return 1; }
     uint8_t *gfx = malloc(gfx_bytes), *proms = malloc(prom_bytes);
     if (fread(gfx, 1, gfx_bytes, f) != gfx_bytes || fread(proms, 1, prom_bytes, f) != prom_bytes) { fprintf(stderr, "truncated\n"); return 1; }
 
@@ -71,8 +73,9 @@ int main(int argc, char **argv)
     ark3d_analyze_graphics(&graphics, gfx, gfx_bytes, proms, prom_bytes);
     ark3d_default_calibration(&cal);
 
-    static uint8_t rec[12 + ARK3D_VIDEORAM_BYTES + ARK3D_SPRITERAM_BYTES + 0x800];
-    while (fread(rec, 1, sizeof(rec), f) == sizeof(rec))
+    static uint8_t rec[12 + ARK3D_VIDEORAM_BYTES + ARK3D_SPRITERAM_BYTES + 0x800 + ARK3D_HIGH_RAM_BYTES];
+    size_t const rec_bytes = sizeof(rec) - (version < 2 ? ARK3D_HIGH_RAM_BYTES : 0);
+    while (fread(rec, 1, rec_bytes, f) == rec_bytes)
     {
         long const frame = (long)rd32(rec + 4);
         if (frame < first) continue;
@@ -88,7 +91,12 @@ int main(int argc, char **argv)
         while (ram && (!have_high || (long)rd32(high) < frame))
             if (fread(high, 1, sizeof(high), ram) == sizeof(high)) have_high = 1;
             else { fclose(ram); ram = NULL; have_high = 0; }
-        if (have_high && (long)rd32(high) == frame)
+        if (version >= 2)
+        {
+            in.high_ram = rec + 12 + ARK3D_VIDEORAM_BYTES + ARK3D_SPRITERAM_BYTES + 0x800;
+            in.high_ram_bytes = ARK3D_HIGH_RAM_BYTES;
+        }
+        else if (have_high && (long)rd32(high) == frame)
         {
             in.high_ram = high + 4;
             in.high_ram_bytes = 0x7c0;

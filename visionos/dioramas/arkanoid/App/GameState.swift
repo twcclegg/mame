@@ -103,6 +103,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
     private var spriteram = myosd_memory_block()
     private var bankItems: [myosd_memory_block?] = [nil, nil, nil, nil]  // gfxbank, palettebank, flip x, flip y
     private var workRAM = [UInt8](repeating: 0, count: 0x800)
+    private var highRAM = [UInt8](repeating: 0, count: Int(ARK3D_HIGH_RAM_BYTES))   // e840-efff: DOH's hits
 
     private init() {
         graphics.initialize(to: ark3d_graphics())
@@ -188,7 +189,11 @@ final class ArkanoidStateReader: @unchecked Sendable {
             myosd_read_memory(":maincpu", Int32(MYOSD_AS_PROGRAM), 0xc000, raw.baseAddress, raw.count) == raw.count
         }
 
-        workRAM.withUnsafeBufferPointer { ram in
+        let gotHighRAM = highRAM.withUnsafeMutableBytes { raw in
+            myosd_read_memory(":maincpu", Int32(MYOSD_AS_PROGRAM), UInt32(ARK3D_HIGH_RAM_BASE), raw.baseAddress, raw.count) == raw.count
+        }
+
+        workRAM.withUnsafeBufferPointer { ram in highRAM.withUnsafeBufferPointer { high in
             var input = ark3d_input()
             input.videoram = UnsafePointer(vram)
             input.spriteram = UnsafePointer(sram)
@@ -198,9 +203,11 @@ final class ArkanoidStateReader: @unchecked Sendable {
             input.flip_y = readItem(3)
             input.work_ram = gotRAM ? ram.baseAddress : nil
             input.work_ram_bytes = gotRAM ? ram.count : 0
+            input.high_ram = gotHighRAM ? high.baseAddress : nil
+            input.high_ram_bytes = gotHighRAM ? high.count : 0
             ark3d_decode(&input, &layout, graphics.pointee.valid != 0 ? UnsafePointer(graphics) : nil,
                          UnsafePointer(calibration), decoded)
-        }
+        } }
 
         paddle.frame(state: decoded, layout: layout)
         store.publish(decoded)
