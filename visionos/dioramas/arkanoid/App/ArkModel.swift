@@ -25,6 +25,10 @@ final class ArkModel {
     var paddleSensitivity: Float = 2 {
         didSet { ArkanoidStateReader.shared.paddle.sensitivity = paddleSensitivity }
     }
+    /// How the controller's left stick moves the Vaus.
+    var stickMode: PaddleController.StickMode = .speed {
+        didSet { ArkanoidStateReader.shared.paddle.stickMode = stickMode }
+    }
     /// The original 2D picture as a small screen behind the playfield.
     var showOriginalScreen = true
     /// The floor shows the round's background from the game, or a plain one.

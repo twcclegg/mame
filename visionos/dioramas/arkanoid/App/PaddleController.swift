@@ -42,6 +42,13 @@ final class PaddleController: @unchecked Sendable {
     private var pointerTarget: Float?           // view px, from a gesture or the hand
     private var dragDelta: Float?               // view px since the pinch began (relative, like the spinner)
     private var _sensitivity: Float = 2
+    private var _stickMode: StickMode = .speed
+    private var firing = false                  // RT / RB held (MAME thread)
+
+    var stickMode: StickMode {
+        get { lock.lock(); defer { lock.unlock() }; return _stickMode }
+        set { lock.lock(); _stickMode = newValue; lock.unlock() }
+    }
 
     /// Vaus px per px of pinch movement (and the hand's gain about the field's centre).
     var sensitivity: Float {
@@ -77,7 +84,18 @@ final class PaddleController: @unchecked Sendable {
     private var windowFrames = 0
     private var lastVausX: Float?
 
-    static let stickSpeed: Float = 4            // px per frame at full deflection
+    /// How the left stick moves the Vaus.
+    enum StickMode: Int, CaseIterable, Identifiable {
+        case speed          // deflection sets the speed, on a curve: fine near the centre
+        case position       // deflection is the position across the field; centre when let go
+        var id: Int { rawValue }
+        var label: String { self == .speed ? "Speed" : "Position" }
+    }
+
+    static let stickDeadZone: Float = 0.15
+    static let stickMaxSpeed: Float = 7         // px per frame at full deflection (field: 208 px)
+    static let stickCurve: Float = 1.6          // speed ~ deflection^curve
+    static let dpadSpeed: Float = 3             // px per frame
     static let maxStep: Int32 = 12              // counts per frame
     static let ports = [":P1", ":P2"]          // P2 is the cocktail player's spinner
 
@@ -103,6 +121,7 @@ final class PaddleController: @unchecked Sendable {
         var pointer = pointerTarget
         let drag = dragDelta
         let gainScale = _sensitivity
+        let stickMode = _stickMode
         lock.unlock()
 
         if let drag {
@@ -119,16 +138,39 @@ final class PaddleController: @unchecked Sendable {
             }
         }
 
-        // controller input: velocity on the target (used in every mode)
-        var stick: Float = 0
+        // controller input (used in every mode).  The stick: a speed on a
+        // curve, or a position across the field; the d-pad: a steady speed.
+        var stick: Float = 0                    // px per frame to move the target
+        var stickTarget: Float?                 // position mode
         if let gp = GCController.current?.extendedGamepad {
             let x = gp.leftThumbstick.xAxis.value
-            if abs(x) > 0.15 { stick = x }
-            if gp.dpad.left.isPressed { stick = -0.75 }
-            if gp.dpad.right.isPressed { stick = 0.75 }
+            let m = max(0, (abs(x) - Self.stickDeadZone) / (1 - Self.stickDeadZone))
+            switch stickMode {
+            case .speed:
+                if m > 0 { stick = (x < 0 ? -1 : 1) * Self.stickMaxSpeed * pow(m, Self.stickCurve) }
+            case .position:
+                // the stick spans the field (a little more, so the walls are
+                // easy to reach); let go and it's back in the middle, but only
+                // when the controller is the chosen paddle, so it doesn't fight a pinch
+                let centre = (minX + maxX) / 2, half = (maxX - minX) / 2 * 1.1
+                if m > 0 || source == .controller {
+                    stickTarget = centre + (x < 0 ? -1 : 1) * m * half
+                }
+            }
+            if gp.dpad.left.isPressed { stick = -Self.dpadSpeed }
+            if gp.dpad.right.isPressed { stick = Self.dpadSpeed }
+
+            // RT and RB fire too, not just A (MAME's button 1)
+            let fire = gp.rightTrigger.isPressed || gp.rightShoulder.isPressed
+            if fire != firing {
+                firing = fire
+                MAMEEngine.shared.input.setVirtual(MYOSD_A.rawValue, held: fire)
+            }
         }
         if stick != 0 {
-            target = min(max((target ?? vausX) + stick * Self.stickSpeed, minX), maxX)
+            target = min(max((target ?? vausX) + stick, minX), maxX)
+        } else if let stickTarget {
+            target = min(max(stickTarget, minX), maxX)
         } else if source != .controller, let pointer {
             target = min(max(pointer, minX), maxX)
         }
@@ -169,6 +211,6 @@ final class PaddleController: @unchecked Sendable {
         }
 
         // stop chasing once there, so the controller mapping isn't fighting a stale target
-        if stick == 0 && pointer == nil && abs(error) < 1 { target = nil }
+        if stick == 0 && stickTarget == nil && pointer == nil && abs(error) < 1 { target = nil }
     }
 }

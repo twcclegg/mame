@@ -91,8 +91,9 @@ calls added to libmame: `myosd_save_state` / `myosd_load_state` and `MYOSD_THROT
 
 | | |
 |---|---|
-| Left stick / d-pad | move the Vaus |
-| A | fire (laser) / launch (catch) |
+| Left stick | move the Vaus. Settings → Stick: **Speed** (default; how far you push sets how fast, on a curve, so it's fine near the centre; full deflection crosses the field in about half a second) or **Position** (where you push is where it goes; back to the middle when let go) |
+| D-pad | move the Vaus at a steady speed |
+| A, RT or RB | fire (laser) / launch (catch) |
 | Select (View / Share / Create) | insert coin |
 | Start (Menu / Options) | 1 player start |
 | Select + Start | MAME menu (the Home button is reserved by visionOS) |

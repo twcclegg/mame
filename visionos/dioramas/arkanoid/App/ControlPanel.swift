@@ -57,7 +57,11 @@ struct ControlPanel: View {
                         ForEach(PaddleController.Source.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    LabeledContent("Sensitivity") {
+                    Picker("Stick", selection: $model.stickMode) {
+                        ForEach(PaddleController.StickMode.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    LabeledContent("Pinch / hand sensitivity") {
                         Slider(value: $model.paddleSensitivity, in: 0.5...5, step: 0.25)
                         Text(model.paddleSensitivity, format: .number.precision(.fractionLength(2)))
                             .monospacedDigit()
@@ -66,7 +70,7 @@ struct ControlPanel: View {
                 } header: {
                     Text("Controls")
                 } footer: {
-                    Text("No controller needed: Coin, then Start. Pinch & drag: look at the field, pinch (launches / fires) and move sideways; the Vaus moves from where it is, like the arcade's spinner, so you can let go and pinch again. Hand (arena only): the Vaus follows your right index finger, pinch your left hand to fire. Controller: stick or d-pad moves the Vaus, A fires / launches, Select inserts a coin, Start starts, Select+Start opens MAME's menu.")
+                    Text("No controller needed: Coin, then Start. Pinch & drag: look at the field, pinch (launches / fires) and move sideways; the Vaus moves from where it is, like the arcade's spinner, so you can let go and pinch again. Hand (arena only): the Vaus follows your right index finger, pinch your left hand to fire. Controller: the left stick moves the Vaus (Stick: Speed = how far you push sets how fast, finer near the centre; Position = where you push is where it goes), the d-pad at a steady speed; A, RT or RB fires / launches; Select+Start opens MAME's menu.")
                 }
             }
             .navigationTitle("Arkanoid Diorama")
