@@ -1,7 +1,7 @@
 // license:BSD-3-Clause
 //
-// HandTracking - the right index fingertip as the paddle position (stretch
-// goal).  ARKit hand tracking only runs while an immersive space is open, so
+// HandTracking - the right index fingertip as the paddle position, and a
+// left-hand pinch (thumb tip to index tip) as the fire button.  ARKit hand tracking only runs while an immersive space is open, so
 // this is used by the "arena" space, not the volumetric window.
 // Needs NSHandsTrackingUsageDescription (project.yml).
 
@@ -11,9 +11,14 @@ import simd
 
 @MainActor
 final class HandTracker {
-    /// Streams the right index fingertip's world position until the task is
-    /// cancelled.  A data provider can only run once, so each call makes a new one.
-    func run(_ onTip: @escaping @MainActor (SIMD3<Float>?) -> Void) async {
+    /// Fingertips closer than this start a pinch, farther than `pinchOff` end it.
+    static let pinchOn: Float = 0.015, pinchOff: Float = 0.03
+
+    /// Streams the right index fingertip's world position, and calls `onPinch`
+    /// when a left-hand pinch begins, until the task is cancelled.  A data
+    /// provider can only run once, so each call makes a new one.
+    func run(_ onTip: @escaping @MainActor (SIMD3<Float>?) -> Void,
+             onPinch: @escaping @MainActor () -> Void = {}) async {
         guard HandTrackingProvider.isSupported else { return }
         let session = ARKitSession()
         let provider = HandTrackingProvider()
@@ -22,10 +27,23 @@ final class HandTracker {
         } catch {
             return
         }
+        var pinching = false
         for await update in provider.anchorUpdates {
             if Task.isCancelled { break }
             let anchor = update.anchor
-            guard anchor.chirality == .right else { continue }
+            if anchor.chirality == .left {
+                guard anchor.isTracked, let skeleton = anchor.handSkeleton else { pinching = false; continue }
+                let thumb = skeleton.joint(.thumbTip), index = skeleton.joint(.indexFingerTip)
+                guard thumb.isTracked, index.isTracked else { continue }
+                let d = simd_distance(thumb.anchorFromJointTransform.columns.3, index.anchorFromJointTransform.columns.3)
+                if !pinching && d < Self.pinchOn {
+                    pinching = true
+                    onPinch()
+                } else if pinching && d > Self.pinchOff {
+                    pinching = false
+                }
+                continue
+            }
             guard anchor.isTracked, let skeleton = anchor.handSkeleton else {
                 onTip(nil)
                 continue

@@ -83,6 +83,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
 
     let store = GameStateStore()
     let paddle = PaddleController()
+    let quick = QuickStart()
 
     /// Sets from taito/arkanoid.cpp that run the original Arkanoid program
     /// (parents and clones; not Hexa, Tetris, Brixian or Cruisin 5).
@@ -210,6 +211,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
         } }
 
         paddle.frame(state: decoded, layout: layout)
+        quick.frame(state: decoded)
         store.publish(decoded)
     }
 

@@ -29,9 +29,18 @@ struct PlayfieldView: View {
 
     @State private var model = ArkModel.shared
     @State private var holder = PlayfieldHolder()
+    @State private var pinchStart: Float?       // view x where the pinch began
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     private var scene: PlayfieldScene { holder.scene }
 
     private var paddle: PaddleController { ArkanoidStateReader.shared.paddle }
+
+    /// Hand tracking only runs in the arena; in the volume, "Hand" falls back to pinching.
+    private var pinchSteers: Bool {
+        model.paddleSource == .pinch || (model.paddleSource == .hand && !immersive)
+    }
 
     var body: some View {
         RealityView { content, attachments in
@@ -82,7 +91,7 @@ struct PlayfieldView: View {
                 if let pane = attachments.entity(for: cell.id) { scene.mount(pane: pane, for: cell) }
             }
         } attachments: {
-            Attachment(id: "hud") { HUDView() }
+            Attachment(id: "hud") { HUDView(immersive: immersive) }
             ForEach(scene.panes.cells) { cell in
                 Attachment(id: cell.id) { FrostedPaneView(pane: cell) }
             }
@@ -91,26 +100,63 @@ struct PlayfieldView: View {
             DragGesture(minimumDistance: 0)
                 .targetedToAnyEntity()
                 .onChanged { value in
-                    guard model.paddleSource == .pinch, value.entity === scene.touchSurface else { return }
+                    guard pinchSteers, value.entity === scene.touchSurface else { return }
                     let p = value.convert(value.location3D, from: .local, to: scene.root)
-                    paddle.setPointerTarget(scene.viewX(fromLocal: p))
+                    let x = scene.viewX(fromLocal: p)
+                    if pinchStart == nil {
+                        // the pinch itself launches the ball / fires the laser
+                        pinchStart = x
+                        model.fire()
+                    }
+                    // relative, like the arcade's spinner: the Vaus moves from
+                    // where it is, by the hand's movement (PaddleController)
+                    paddle.setDrag(x - (pinchStart ?? x))
                 }
-                .onEnded { _ in paddle.setPointerTarget(nil) }
+                .onEnded { _ in
+                    pinchStart = nil
+                    paddle.setDrag(nil)
+                }
         )
+        .onAppear {
+            guard !immersive, !model.didAutoStart else { return }
+            model.didAutoStart = true
+            launchFlow()
+        }
         .task(id: immersive && model.paddleSource == .hand) {
             guard immersive && model.paddleSource == .hand else { return }
             let scene = self.scene, paddle = self.paddle
-            await holder.tracker.run { tip in
+            let model = self.model
+            await holder.tracker.run({ tip in
                 guard let tip else { paddle.setPointerTarget(nil); return }
                 let p = scene.root.convert(position: tip, from: nil)
                 paddle.setPointerTarget(scene.viewX(fromLocal: p))
-            }
+            }, onPinch: { model.fire() })
             paddle.setPointerTarget(nil)
         }
     }
 }
 
 extension PlayfieldView {
+    /// The app opens on this volume: start the game straight away (QuickStart),
+    /// or, with no ROM set yet, show the control window, which says how to add one.
+    private func launchFlow() {
+        // development: DIORAMA_CLOSEUP=1 opens the arena right in front of
+        // the viewer, e.g. for simulator screenshots
+        let closeup = ProcessInfo.processInfo.environment["DIORAMA_CLOSEUP"] == "1"
+        if !model.startReplayIfRequested() && !model.autoStart() {
+            openWindow(id: ArkanoidDioramaApp.controlsID)
+        }
+        if closeup {
+            Task {
+                if case .opened = await openImmersiveSpace(id: ArkanoidDioramaApp.arenaID) {
+                    model.arenaOpen = true
+                    // nothing between the viewer and the board
+                    dismissWindow(id: ArkanoidDioramaApp.volumeID)
+                }
+            }
+        }
+    }
+
     /// How far the table-top view tilts the field toward the viewer.
     static let volumeTilt: Float = 28 * .pi / 180
 
@@ -131,9 +177,39 @@ extension PlayfieldView {
     }
 }
 
-/// Floating score board above the far wall.
+/// Floating score board above the far wall, with the arcade buttons (so a
+/// game can be played without a controller) and, in the arena, a way out:
+/// the board can cover the control window there.
 struct HUDView: View {
+    let immersive: Bool
+
+    @State private var model = ArkModel.shared
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
+        VStack(spacing: 10) {
+            scoreBoard
+            HStack(spacing: 12) {
+                if model.running {
+                    Button("New game", systemImage: "arrow.counterclockwise") { model.newGame() }
+                    Button("Fire", systemImage: "scope") { model.fire() }
+                }
+                Button("Settings", systemImage: "gearshape") { openWindow(id: ArkanoidDioramaApp.controlsID) }
+                if immersive {
+                    Button("Leave arena", systemImage: "xmark.circle") {
+                        Task {
+                            await dismissImmersiveSpace()
+                            model.arenaOpen = false
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private var scoreBoard: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
             let s = ArkanoidStateReader.shared.store.summary()
             HStack(spacing: 24) {

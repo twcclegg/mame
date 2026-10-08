@@ -29,6 +29,9 @@ struct ControlPanel: View {
                         if !model.volumeOpen { openWindow(id: ArkanoidDioramaApp.volumeID) }
                     }
                     .disabled(model.running || model.sets.isEmpty)
+                    if model.running {
+                        ArcadeButtons(model: model)
+                    }
                 }
 
                 Section("View") {
@@ -54,10 +57,16 @@ struct ControlPanel: View {
                         ForEach(PaddleController.Source.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    LabeledContent("Sensitivity") {
+                        Slider(value: $model.paddleSensitivity, in: 0.5...5, step: 0.25)
+                        Text(model.paddleSensitivity, format: .number.precision(.fractionLength(2)))
+                            .monospacedDigit()
+                            .frame(width: 44)
+                    }
                 } header: {
                     Text("Controls")
                 } footer: {
-                    Text("Controller: stick or d-pad moves the Vaus, A fires / launches, Select inserts a coin, Start starts. Select+Start opens MAME's menu. Pinch & drag: look at the field, pinch and move sideways. Hand: follows your right index finger (arena only).")
+                    Text("No controller needed: Coin, then Start. Pinch & drag: look at the field, pinch (launches / fires) and move sideways; the Vaus moves from where it is, like the arcade's spinner, so you can let go and pinch again. Hand (arena only): the Vaus follows your right index finger, pinch your left hand to fire. Controller: stick or d-pad moves the Vaus, A fires / launches, Select inserts a coin, Start starts, Select+Start opens MAME's menu.")
                 }
             }
             .navigationTitle("Arkanoid Diorama")
@@ -65,31 +74,22 @@ struct ControlPanel: View {
                 Button("Refresh", systemImage: "arrow.clockwise") { model.refresh() }
             }
         }
-        .onAppear {
-            model.refresh()
-            // development: DIORAMA_CLOSEUP=1 opens the arena right in front of
-            // the viewer (see PlayfieldView), e.g. for simulator screenshots
-            let closeup = ProcessInfo.processInfo.environment["DIORAMA_CLOSEUP"] == "1"
-            if model.startReplayIfRequested() {
-                if !closeup { openWindow(id: ArkanoidDioramaApp.volumeID) }
-            } else {
-                // launch arguments (e.g. `xcrun simctl launch booted <id> arkanoid`) start directly
-                let args = MAMEEngine.stripSystemArguments(Array(CommandLine.arguments.dropFirst()))
-                if let first = args.first, !model.running {
-                    model.selected = first
-                    model.launch(extraArguments: Array(args.dropFirst()))
-                    if !closeup { openWindow(id: ArkanoidDioramaApp.volumeID) }
-                }
-            }
-            if closeup {
-                Task {
-                    if case .opened = await openImmersiveSpace(id: ArkanoidDioramaApp.arenaID) {
-                        model.arenaOpen = true
-                        // nothing between the viewer and the board
-                        dismissWindow(id: ArkanoidDioramaApp.controlsID)
-                    }
-                }
-            }
+        .onAppear { model.refresh() }
+    }
+}
+
+/// Coin, 1P start and fire, for playing without a controller (the control
+/// window and the HUD over the board).
+struct ArcadeButtons: View {
+    let model: ArkModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button("New game", systemImage: "arrow.counterclockwise") { model.newGame() }
+            Button("Coin", systemImage: "centsign.circle") { model.insertCoin() }
+            Button("Start", systemImage: "play.circle") { model.pressStart() }
+            Button("Fire", systemImage: "scope") { model.fire() }
         }
+        .buttonStyle(.bordered)
     }
 }

@@ -39,9 +39,32 @@ final class GameControllerInput: @unchecked Sendable {
         }
     }
 
+    // on-screen / gesture buttons for player 1 (MYOSD_* bits), for playing
+    // without a controller: held while set, or pressed until a deadline
+    private var virtualHeld: UInt32 = 0
+    private var virtualPulses: [UInt32: TimeInterval] = [:]
+
+    /// Presses `bits` for player 1 while `held` is true (e.g. fire while pinching).
+    func setVirtual(_ bits: UInt32, held: Bool) {
+        lock.lock()
+        if held { virtualHeld |= bits } else { virtualHeld &= ~bits }
+        lock.unlock()
+    }
+
+    /// Presses `bits` for player 1 briefly (a tap on a Coin or Start button);
+    /// long enough for any game to see it.
+    func pulseVirtual(_ bits: UInt32, seconds: TimeInterval = 0.15) {
+        lock.lock()
+        virtualPulses[bits] = ProcessInfo.processInfo.systemUptime + seconds
+        lock.unlock()
+    }
+
     func poll(into state: UnsafeMutablePointer<myosd_input_state>) {
         lock.lock()
         let pads = controllers
+        let now = ProcessInfo.processInfo.systemUptime
+        virtualPulses = virtualPulses.filter { $0.value > now }
+        let virtual = virtualPulses.keys.reduce(virtualHeld, |)
         lock.unlock()
 
         let joyCount = Int(MYOSD_NUM_JOY)
@@ -93,6 +116,8 @@ final class GameControllerInput: @unchecked Sendable {
             analog[base + Int(MYOSD_AXIS_LZ.rawValue)] = gp.leftTrigger.value
             analog[base + Int(MYOSD_AXIS_RZ.rawValue)] = gp.rightTrigger.value
         }
+
+        status[0] |= UInt(virtual)
 
         // copy into the C struct (fixed-size C arrays import as tuples, so go through raw bytes)
         withUnsafeMutableBytes(of: &state.pointee.joy_status) { raw in

@@ -74,9 +74,18 @@ Copy your ROM set (for example `arkanoid.zip`) into the app's **Documents/roms**
 folder, using the Files app on the device or Finder file sharing. For the
 simulator, use the app container's Documents folder
 (`xcrun simctl get_app_container booted org.mamedev.diorama.arkanoid data`). Clones
-such as `arkanoidj` also need the parent `arkanoid.zip`. Then press **Start** in
-the control window, and the diorama's volume opens. A launch argument starts a
-set directly, for example `xcrun simctl launch booted org.mamedev.diorama.arkanoid arkanoid`.
+such as `arkanoidj` also need the parent `arkanoid.zip`. A launch argument
+picks the set, for example `xcrun simctl launch booted org.mamedev.diorama.arkanoid arkanoid`.
+
+The app opens on the diorama's volume, straight into a game (`QuickStart`): round
+1, the ball held on the Vaus, waiting for you. The first launch gets there by
+running the game unthrottled and muted while it inserts a coin and presses start
+(a few seconds), then saves that moment as a state (`Documents/sta/<set>/ready.sta`);
+later launches load it. The game is held (paused) until you pinch, press Fire or
+use a controller. **New game** above the board goes back to that moment; **Settings**
+opens the control window (set, views, paddle control and sensitivity). With no ROM
+set yet, the control window opens instead and says how to add one. This uses two
+calls added to libmame: `myosd_save_state` / `myosd_load_state` and `MYOSD_THROTTLE`.
 
 ### Controls
 
@@ -87,8 +96,9 @@ set directly, for example `xcrun simctl launch booted org.mamedev.diorama.arkano
 | Select (View / Share / Create) | insert coin |
 | Start (Menu / Options) | 1 player start |
 | Select + Start | MAME menu (the Home button is reserved by visionOS) |
-| **Pinch & drag** | look at the field, pinch and move your hand sideways: the Vaus goes where you point |
-| **Hand** (arena only) | the Vaus follows your right index fingertip (ARKit hand tracking) |
+| **Pinch & drag** | look at the field and pinch (launches / fires), then move your hand sideways: the Vaus moves from where it is, by the hand's movement times the sensitivity, like the arcade's spinner; let go and pinch again to keep going |
+| **Hand** (arena only) | the Vaus follows your right index fingertip (ARKit hand tracking), scaled about the field's centre by the sensitivity; pinch your left hand to fire |
+| **Buttons** | New game, Fire and Settings above the board (and Leave arena in the arena); Coin, Start and Fire in the control window, for playing without a controller |
 
 The paddle is a relative spinner, so absolute control runs in a closed loop.
 Each frame `PaddleController` compares the Vaus x (from sprite RAM) with the

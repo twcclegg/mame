@@ -63,4 +63,5 @@ targets:
         NSHandsTrackingUsageDescription: The Vaus can follow your index finger in the immersive arena.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
-          UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleApplication
+          # the app opens on the game's volume (ArkanoidDioramaApp)
+          UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication

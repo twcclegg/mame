@@ -40,19 +40,36 @@ final class PaddleController: @unchecked Sendable {
     private let lock = NSLock()
     private var _source: Source = .pinch
     private var pointerTarget: Float?           // view px, from a gesture or the hand
+    private var dragDelta: Float?               // view px since the pinch began (relative, like the spinner)
+    private var _sensitivity: Float = 2
+
+    /// Vaus px per px of pinch movement (and the hand's gain about the field's centre).
+    var sensitivity: Float {
+        get { lock.lock(); defer { lock.unlock() }; return _sensitivity }
+        set { lock.lock(); _sensitivity = newValue; lock.unlock() }
+    }
 
     var source: Source {
         get { lock.lock(); defer { lock.unlock() }; return _source }
-        set { lock.lock(); _source = newValue; pointerTarget = nil; lock.unlock() }
+        set { lock.lock(); _source = newValue; pointerTarget = nil; dragDelta = nil; lock.unlock() }
     }
 
-    /// Set from the main thread (gesture / hand tracking); nil when released.
+    /// Set from the main thread (hand tracking); nil when released.
     func setPointerTarget(_ viewX: Float?) {
         lock.lock(); pointerTarget = viewX; lock.unlock()
     }
 
+    /// Set from the main thread while pinching: how far (view px) the pinch has
+    /// moved since it began; nil when released.  The Vaus moves by that much
+    /// times `sensitivity` from wherever it was, so a pinch never makes it jump
+    /// and a short hand movement can cross the field.
+    func setDrag(_ delta: Float?) {
+        lock.lock(); dragDelta = delta; lock.unlock()
+    }
+
     // MAME-thread state
     private var target: Float?
+    private var dragAnchor: Float?              // Vaus x when the pinch began
     private var counter: Int32 = 0
     private var gain: Float = 1                 // measured px per count (the game: about +1)
     private var windowSteps: Int32 = 0
@@ -83,8 +100,24 @@ final class PaddleController: @unchecked Sendable {
 
         lock.lock()
         let source = _source
-        let pointer = pointerTarget
+        var pointer = pointerTarget
+        let drag = dragDelta
+        let gainScale = _sensitivity
         lock.unlock()
+
+        if let drag {
+            let anchor = dragAnchor ?? vausX
+            dragAnchor = anchor
+            pointer = anchor + drag * gainScale
+        } else {
+            dragAnchor = nil
+            if let p = pointer {
+                // the hand: scaled about the field's centre, so the right hand
+                // needn't sweep the whole (1 m) field
+                let centre = Float(layout.field_left + layout.field_right) / 2
+                pointer = centre + (p - centre) * gainScale
+            }
+        }
 
         // controller input: velocity on the target (used in every mode)
         var stick: Float = 0
