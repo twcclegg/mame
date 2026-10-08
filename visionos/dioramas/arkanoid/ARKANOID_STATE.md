@@ -212,7 +212,7 @@ override them.
 | `000-0ff` | font: scores, "HIGH SCORE", title and high-score screens |
 | `11e-129` | walls: the side walls (view columns 0 and 27) and the top wall (row 2). A round is on screen (`in_play`) only while both side walls are there; the game blanks them column by column when it wipes the playfield |
 | `124-127` in row 2, columns 5–8 and 19–22 | the two enemy hatches, closed. Opening runs through `14a`, `14e`, `152`, `156`, `15a` (4 tiles each, 4 frames a step) and closes the same way back (`gate_open`) |
-| `12a-149` in column 27, rows 27–31 | the warp gate (B capsule, `warp_open`): opening through `12a-12e`, `12f-133`, `134-13b`, then a frame (`13d` top, `13c` bottom) round an interior cycling `13e-149` |
+| `12a-149` in column 27, rows 27–31 | the warp gate (B capsule, `warp_open`): opening through `12a-12e`, `12f-133`, `134-13b`, then a frame (`13d` top, `13c` bottom) round an interior cycling `13e-149`: a lightning arc between two electrodes, three tiles per animation frame (`13e-140`, `141-143`, `147-149`; `144-146` unused), two frames each (`warp_phase` 0, 1, 3) |
 | `710-719` | the attract demo's "GAME OVER" banner |
 | `185`,`184` in row 31 from column 1 | a spare-life icon each (`spare_lives`): 2 at the start of a game, so 3 lives. The lives count isn't in work RAM (c000-c7ff): no byte there drops by one at each lost life |
 | `15e-16d` | coloured bricks, pairs (left even, right odd): white, orange, cyan, green, red, blue, magenta, yellow |

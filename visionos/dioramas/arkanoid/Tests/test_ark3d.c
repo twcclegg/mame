@@ -298,11 +298,22 @@ static void test_default_calibration(void)
 
     // the warp gate open in the right wall: still in play
     put_tile(27, 27, 0x13d, 0x1c);
-    for (int r = 28; r < 31; r++) put_tile(27, r, 0x140, 0x1c);
+    for (int r = 28; r < 31; r++) put_tile(27, r, 0x140 - (r - 28), 0x1c);
     put_tile(27, 31, 0x13c, 0x1c);
     CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
     CHECK_EQ(st.in_play, 1);
     CHECK_NEAR(st.warp_open, 1);
+    CHECK_EQ(st.warp_phase, 0);
+    // its lightning, frame 149-147
+    for (int r = 28; r < 31; r++) put_tile(27, r, 0x149 - (r - 28), 0x1c);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.warp_phase, 3);
+    // still opening: no lightning yet
+    put_tile(27, 27, 0x137, 0x1c);
+    put_tile(27, 28, 0x136, 0x1c);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_NEAR(st.warp_open, 0.75);
+    CHECK_EQ(st.warp_phase, -1);
 }
 
 // DOH, round 33: the numbers are from captures of a real fight (ARKANOID_STATE.md)

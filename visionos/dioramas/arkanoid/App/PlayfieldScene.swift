@@ -213,15 +213,25 @@ final class PlayfieldScene {
             wallMat.roughness = .init(floatLiteral: 0.06)
             wallMat.clearcoat = .init(floatLiteral: 1)
         }
-        for x in [left / 2, right + (Float(ARK3D_VIEW_W) - right) / 2] {
-            let length = depth + wallW
-            let wall = ModelEntity(mesh: tubes ? .generateCylinder(height: length, radius: tubeR)
-                                               : .generateBox(width: wallW, height: h, depth: length, cornerRadius: wallW / 3),
-                                   materials: [wallMat])
-            if tubes { wall.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0]) }
-            wall.position = local(x, (top + bottom) / 2 - Float(layout.field_left) / 2, h / 2)
-            field.addChild(wall)
-            if tubes { addRibs(along: [0, 0, 1], centre: wall.position, length: length, radius: tubeR, material: wallMat) }
+        // the side walls run from the top wall's far edge to the bottom; the
+        // right one in two pieces, so the piece in front of the warp gate can
+        // make way for it
+        let wallTop = top - Float(layout.field_left), gateSplit = warpY0 - 3
+        for (i, x) in [left / 2, right + (Float(ARK3D_VIEW_W) - right) / 2].enumerated() {
+            let spans: [(Float, Float)] = i == 1 ? [(wallTop, gateSplit), (gateSplit, bottom)] : [(wallTop, bottom)]
+            for (j, (y0, y1)) in spans.enumerated() {
+                let length = (y1 - y0) * s
+                let piece = Entity()
+                field.addChild(piece)
+                let wall = ModelEntity(mesh: tubes ? .generateCylinder(height: length, radius: tubeR)
+                                                   : .generateBox(width: wallW, height: h, depth: length, cornerRadius: wallW / 3),
+                                       materials: [wallMat])
+                if tubes { wall.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0]) }
+                wall.position = local(x, (y0 + y1) / 2, h / 2)
+                piece.addChild(wall)
+                if tubes { addRibs(along: [0, 0, 1], centre: wall.position, length: length, radius: tubeR, material: wallMat, in: piece) }
+                if i == 1 && j == 1 { warpWall = piece }
+            }
         }
         // the top wall, in segments around the two enemy hatches
         let wallY = top - Float(layout.field_left) / 2
@@ -267,7 +277,8 @@ final class PlayfieldScene {
     }
 
     /// Rings round a chrome tube every 3 cm, like the arcade's pipes.
-    private func addRibs(along axis: SIMD3<Float>, centre: SIMD3<Float>, length: Float, radius: Float, material: RealityKit.Material) {
+    private func addRibs(along axis: SIMD3<Float>, centre: SIMD3<Float>, length: Float, radius: Float, material: RealityKit.Material,
+                         in parent: Entity? = nil) {
         let mesh = MeshResource.generateCylinder(height: 0.003, radius: radius * 1.18)
         let turn = axis.x != 0 ? simd_quatf(angle: .pi / 2, axis: [0, 0, 1]) : simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
         let n = max(1, Int(length / 0.03))
@@ -275,7 +286,7 @@ final class PlayfieldScene {
             let rib = ModelEntity(mesh: mesh, materials: [material])
             rib.orientation = turn
             rib.position = centre + axis * (Float(i) / Float(n) - 0.5) * (length - 0.008)
-            field.addChild(rib)
+            (parent ?? field).addChild(rib)
         }
     }
 
@@ -328,6 +339,25 @@ final class PlayfieldScene {
     private let warp = Entity()
     private let warpGlow = ModelEntity()
     private var warpShown: Float = 0
+    /// The energy between the gate's electrodes.  In the game it's two sine
+    /// waves, one white and one cyan, crossing each other and shifting a third
+    /// of a wave every two frames (warp_phase): a spinning double helix.  Here
+    /// it's a real one, two strands of segments (a bright core and a wider
+    /// halo each) twisting round the gate's axis and spinning.
+    private var warpStrands: [[(core: ModelEntity, halo: ModelEntity)]] = []
+    private var warpPhase: Int32 = -1
+    private var warpSpin: Float = 0
+    private var warpLight = PointLightComponent(color: .white)
+    /// The right wall's piece in front of the gate, hidden while it's open.
+    private var warpWall: Entity?
+    static let warpSegments = 40
+    /// Helix: turns from end to end, radius (view px), turns per second.  The
+    /// game's wave moves a whole wavelength every 6 frames (10 a second),
+    /// which in smooth 3D just blurs; this is slower, so it reads as spinning.
+    static let warpTurns: Float = 3, warpRadius: Float = 2.6, warpSpinRate: Float = 1.6
+    /// The gate in view pixels: x (the wall's middle), and y from end to end.
+    private var warpX: Float { Float(layout.field_right) + 4 }
+    private let warpY0: Float = 218, warpY1: Float = 254
     private var gateDoors: [[Entity]] = []
     private var gateGlows: [ModelEntity] = []
     private var gateShown: [Float] = []
@@ -348,15 +378,70 @@ final class PlayfieldScene {
             post.position = local(x, y + dy, h * 0.575)
             warp.addChild(post)
         }
-        var glowMat = UnlitMaterial(color: UIColor(red: 0.55, green: 0.95, blue: 1, alpha: 1))
-        glowMat.blending = .transparent(opacity: .init(floatLiteral: 0.85))
-        warpGlow.model = ModelComponent(mesh: .generateBox(width: 9.5 * s, height: h * 1.05, depth: length * s), materials: [glowMat])
-        warpGlow.position = local(x, y, h * 0.525)
-        warpGlow.components.set(PointLightComponent(color: UIColor(red: 0.4, green: 0.9, blue: 1, alpha: 1),
-                                                    intensity: 600, attenuationRadius: 0.25))
+        // the opening is a black slot where the pipe parts, as in the game
+        var glowMat = UnlitMaterial(color: UIColor(red: 0.01, green: 0.02, blue: 0.04, alpha: 1))
+        glowMat.blending = .transparent(opacity: .init(floatLiteral: 0.92))
+        // a thin plate at the back of the slot, so the arc stands in front of it
+        warpGlow.model = ModelComponent(mesh: .generateBox(width: 9.5 * s, height: h * 0.08, depth: length * s), materials: [glowMat])
+        warpGlow.position = local(x, y, h * 0.04)
+        warpLight = PointLightComponent(color: UIColor(red: 0.5, green: 0.9, blue: 1, alpha: 1),
+                                        intensity: 600, attenuationRadius: 0.25)
+        warpGlow.components.set(warpLight)
         warp.addChild(warpGlow)
+
+        // the strands: unit-length boxes, stretched and aimed per segment;
+        // one white and one cyan, as in the game
+        let cores: [UIColor] = [UIColor(red: 0.95, green: 0.98, blue: 1, alpha: 1),
+                                UIColor(red: 0.25, green: 0.9, blue: 1, alpha: 1)]
+        var haloMat = UnlitMaterial(color: UIColor(red: 0.3, green: 0.8, blue: 1, alpha: 1))
+        haloMat.blending = .transparent(opacity: .init(floatLiteral: 0.35))
+        let core = MeshResource.generateBox(width: 0.6 * s, height: 0.6 * s, depth: 1)
+        let halo = MeshResource.generateBox(width: 1.6 * s, height: 1.6 * s, depth: 1)
+        warpStrands = cores.map { colour in
+            let coreMat = UnlitMaterial(color: colour)
+            return (0..<Self.warpSegments).map { _ in
+                let c = ModelEntity(mesh: core, materials: [coreMat])
+                let g = ModelEntity(mesh: halo, materials: [haloMat])
+                warp.addChild(c)
+                warp.addChild(g)
+                return (c, g)
+            }
+        }
         warp.isEnabled = false
         field.addChild(warp)
+    }
+
+    /// Places the double helix at spin angle `spin` (or hides it, while the
+    /// gate is still opening).  Strands twist round the gate's axis, across
+    /// the slot (x) and up out of the board (height), and narrow to the
+    /// electrodes at the ends.
+    private func shapeWarp(on: Bool, spin: Float) {
+        let h = Self.wallHeight, n = Self.warpSegments, s = Self.metresPerPixel
+        let centre = h * 0.55
+        for (k, strand) in warpStrands.enumerated() {
+            let offset = Float(k) * .pi
+            var points: [SIMD3<Float>] = []
+            if on {
+                for i in 0...n {
+                    let t = Float(i) / Float(n)
+                    let angle = 2 * .pi * Self.warpTurns * t + spin + offset
+                    let r = Self.warpRadius * sqrt(sin(.pi * t))
+                    let p = local(warpX + r * cos(angle), warpY0 + (warpY1 - warpY0) * t, centre)
+                    points.append(p + SIMD3(0, r * sin(angle) * s, 0))
+                }
+            }
+            for (i, seg) in strand.enumerated() {
+                seg.core.isEnabled = on
+                seg.halo.isEnabled = on
+                guard on else { continue }
+                let a = points[i], z = points[i + 1]
+                for e in [seg.core, seg.halo] {
+                    // look(at:) sets the whole transform, so scale after it
+                    e.look(at: z, from: (a + z) / 2, relativeTo: warp)
+                    e.scale = [1, 1, max(simd_distance(a, z) * 1.15, 0.0001)]
+                }
+            }
+        }
     }
 
     private func buildPools() {
@@ -739,16 +824,22 @@ final class PlayfieldScene {
 
         banner.update(round: Int(s.banner_round), ready: s.banner_ready != 0, dt: dt)
 
-        // warp gate: opens with the game's steps, then shimmers
+        // warp gate: opens with the game's steps, then a double helix spins
+        // between its electrodes; the light pulses with the game's own steps
         warpShown += (s.warp_open - warpShown) * min(1, dt * 14)
         warp.isEnabled = warpShown > 0.02
+        warpWall?.isEnabled = !warp.isEnabled
         if warp.isEnabled {
-            let flicker = 0.85 + 0.15 * sin(spin * 23) * sin(spin * 7)
             warpGlow.scale = [1, 1, max(0.02, warpShown)]
-            if var m = warpGlow.model?.materials.first as? UnlitMaterial {
-                m.blending = .transparent(opacity: .init(floatLiteral: 0.85 * flicker * warpShown))
-                warpGlow.model?.materials = [m]
+            warpSpin += dt * 2 * .pi * Self.warpSpinRate
+            shapeWarp(on: s.warp_phase >= 0, spin: warpSpin)
+            if s.warp_phase != warpPhase {
+                warpPhase = s.warp_phase
+                warpLight.intensity = s.warp_phase >= 0 ? Float.random(in: 600...1000) : 300
+                warpGlow.components.set(warpLight)
             }
+        } else {
+            warpPhase = -1
         }
 
         let spare = Int(s.spare_lives)

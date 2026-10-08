@@ -16,7 +16,7 @@
 //    "vaus":{"x","y","w","phase","laser"} or null, phase: 1 normal, 2 appearing, 3 exploding
 //    "balls":[[x,y],...],
 //    "objs":[[kind,x,y,w,h,"rrggbb",capsule,enemy],...],  kind: 11 capsule, 12 enemy, 13 laser, 14 explosion
-//    "banner":[round,ready], "gates":[left,right], "warp":w,
+//    "banner":[round,ready], "gates":[left,right], "warp":w, "warp_phase":p,
 //    "score":s, "hi":h, "lives":spare,
 //    "doh":null or {"phase","x","y","w","h","hits","hits_max","flash","mouth"}}
 //    DOH phase: 1 alive, 2 dying, 3 gone (hole in the wall), 4 ending screen;
@@ -131,8 +131,8 @@ int main(int argc, char **argv)
             printf("%s[%d,%.1f,%.1f,%.1f,%.1f,\"%02x%02x%02x\",%d,%d]", m++ ? "," : "", o->kind, o->x, o->y, o->w, o->h,
                    o->rgb[0], o->rgb[1], o->rgb[2], o->capsule, o->kind == ARK3D_KIND_ENEMY ? ark3d_enemy_type(o->code) : 0);
         }
-        printf("],\"banner\":[%d,%d],\"gates\":[%.2f,%.2f],\"warp\":%.2f,\"score\":%d,\"hi\":%d,\"lives\":%d,\"doh\":",
-               st.banner_round, st.banner_ready, st.gate_open[0], st.gate_open[1], st.warp_open, st.score, st.high_score, st.spare_lives);
+        printf("],\"banner\":[%d,%d],\"gates\":[%.2f,%.2f],\"warp\":%.2f,\"warp_phase\":%d,\"score\":%d,\"hi\":%d,\"lives\":%d,\"doh\":",
+               st.banner_round, st.banner_ready, st.gate_open[0], st.gate_open[1], st.warp_open, st.warp_phase, st.score, st.high_score, st.spare_lives);
         // the decoder is per frame and can't tell the ending from the intro
         // story (the same kind of screen); here, it's the one that follows DOH
         if (st.doh.phase == ARK3D_DOH_GONE)

@@ -539,6 +539,10 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
     // view rows 27-31: the wall's tiles there step through 12a-12e, 12f-133
     // and 134-13b, then stay open (a frame, 13d on top and 13c at the bottom,
     // round an interior cycling 13e-149).  Judged by the top tile.
+    // The interior (rows 28-30) is a lightning arc between two electrodes,
+    // three tiles per animation frame: 13e-140, 141-143, 147-149 (144-146
+    // unused), each shown for two frames.  Judged by its top tile (140, 143,
+    // 146, 149).
     {
         int const code = st->tile_code[27][ARK3D_VIEW_COLS - 1];
         float open = 0;
@@ -547,6 +551,9 @@ int ark3d_decode(const ark3d_input *in, const ark3d_layout *layout_in,
         else if (code >= 0x134 && code <= 0x13b) open = 0.75f;
         else if (code >= 0x13c && code <= 0x149) open = 1;
         st->warp_open = open;
+        int const inner = st->tile_code[28][ARK3D_VIEW_COLS - 1];
+        st->warp_phase = (open == 1 && inner >= 0x140 && inner <= 0x149 && (inner - 0x140) % 3 == 0)
+                ? (inner - 0x140) / 3 : -1;
     }
 
     // ---- DOH, round 33's boss.  [game] The round's background (codes

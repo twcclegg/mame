@@ -280,6 +280,9 @@ typedef struct {
                                     // caught; P too), 0 none, -1 if unknown (no work RAM)
     int vaus_form;                  // ark3d_vaus_form, -1 if unknown
     ark3d_doh doh;                  // round 33's boss; phase NONE otherwise
+    int warp_phase;                 // the open warp gate's lightning: which of its
+                                    // animation frames is up (0-3, the game uses 0,
+                                    // 1 and 3, two frames each), -1 if not open
 } ark3d_state;
 
 //------------------------------------------------------------
