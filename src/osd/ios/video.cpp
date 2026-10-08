@@ -10,6 +10,8 @@
 #include "drivenum.h"
 #include "screen.h"
 #include "render.h"
+#include "sound.h"
+#include "video.h"
 #include "rendlay.h"
 #include "ui/uimain.h"
 #include "rendersw.hxx"
@@ -144,6 +146,36 @@ static void convert_prim(myosd_render_primitive &myosd_prim, const render_primit
 
 void ios_osd_interface::apply_host_requests()
 {
+    // throttle and save states need a fully started machine (this is also
+    // called during start-up, before the sound manager exists): leave those
+    // requests pending until then
+    bool const running = machine().phase() == machine_phase::RUNNING;
+
+    int const throttle = running ? myosd_throttle_request.exchange(-1) : -1;
+    if (throttle >= 0)
+    {
+        machine().video().set_throttled(throttle != 0);
+        machine().sound().system_mute(throttle == 0);
+        myosd_throttled = throttle != 0;
+    }
+
+    std::string state;
+    bool save = false;
+    if (running)
+    {
+        std::lock_guard<std::mutex> guard(myosd_state_request_lock);
+        state.swap(myosd_state_request);
+        save = myosd_state_request_save;
+    }
+    if (!state.empty())
+    {
+        if (save)
+            machine().schedule_save(std::move(state));
+        else
+            machine().schedule_load(std::move(state));
+    }
+
+    // after the save/load request: scheduling one resumes the machine
     int const pause = myosd_pause_request.exchange(-1);
     if (pause == 1 && !myosd_host_paused)
     {

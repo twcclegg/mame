@@ -12,6 +12,8 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
 //============================================================
@@ -106,6 +108,11 @@ extern std::atomic<bool> myosd_host_paused;
 extern std::atomic<int> myosd_zoom_request;
 extern std::atomic<bool> myosd_zoom_to_screen;
 extern std::atomic<bool> myosd_suppress_native_3d;
+extern std::atomic<int> myosd_throttle_request;
+extern std::atomic<bool> myosd_throttled;
+extern std::mutex myosd_state_request_lock;
+extern std::string myosd_state_request;
+extern bool myosd_state_request_save;
 
 // the running machine, between osd init() and machine exit (state.cpp)
 extern running_machine *g_ios_machine;

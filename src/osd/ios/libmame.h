@@ -373,9 +373,19 @@ enum {
                                 //   around them (e.g. for a big theater screen or a per-game renderer)
     MYOSD_SUPPRESS_NATIVE_3D,   // GET, SET: 1 = drivers that export geometry skip rasterizing it
                                 //   (only meaningful with a geometry_frame callback)
+    MYOSD_THROTTLE,             // GET, SET: 1 = normal speed (default), 0 = run as fast as possible,
+                                //   with sound muted (e.g. to get past a game's boot and intro)
 };
 extern intptr_t myosd_get(int var);
 extern void myosd_set(int var, intptr_t value);
+
+// Save states by name, like MAME's -state option: "ready" is <state
+// directory>/<system>/ready.sta.  Asynchronous: applied on the MAME thread at
+// the next frame, and done by MAME's scheduler shortly after (a load that
+// fails, e.g. a state from an incompatible build, shows MAME's popup and
+// leaves the machine running).  Any thread; the name is copied.
+extern void myosd_save_state(const char* name);
+extern void myosd_load_state(const char* name);
 
 // a finished frame for the video_draw_pixels callback
 typedef struct {

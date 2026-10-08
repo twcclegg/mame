@@ -46,6 +46,11 @@ std::atomic<bool> myosd_host_paused{ false };
 std::atomic<int> myosd_zoom_request{ -1 };      // -1 none, 0 off, 1 on
 std::atomic<bool> myosd_zoom_to_screen{ false };
 std::atomic<bool> myosd_suppress_native_3d{ false };
+std::atomic<int> myosd_throttle_request{ -1 };  // -1 none, 0 fast, 1 normal
+std::atomic<bool> myosd_throttled{ true };
+std::mutex myosd_state_request_lock;
+std::string myosd_state_request;                // name to save or load, empty if none
+bool myosd_state_request_save;
 
 //============================================================
 //  OPTIONS
@@ -124,6 +129,9 @@ extern "C" intptr_t myosd_get(int var)
 
         case MYOSD_SUPPRESS_NATIVE_3D:
             return myosd_suppress_native_3d ? 1 : 0;
+
+        case MYOSD_THROTTLE:
+            return myosd_throttled ? 1 : 0;
     }
     return 0;
 }
@@ -156,8 +164,26 @@ extern "C" void myosd_set(int var, intptr_t value)
         case MYOSD_SUPPRESS_NATIVE_3D:
             myosd_suppress_native_3d = value != 0;
             break;
+        case MYOSD_THROTTLE:
+            myosd_throttle_request = value ? 1 : 0;
+            break;
     }
 }
+
+//============================================================
+//  myosd_save_state / myosd_load_state
+//============================================================
+static void request_state(const char* name, bool save)
+{
+    if (name == nullptr || name[0] == 0)
+        return;
+    std::lock_guard<std::mutex> guard(myosd_state_request_lock);
+    myosd_state_request = name;
+    myosd_state_request_save = save;
+}
+
+extern "C" void myosd_save_state(const char* name) { request_state(name, true); }
+extern "C" void myosd_load_state(const char* name) { request_state(name, false); }
 
 //============================================================
 //  constructor
