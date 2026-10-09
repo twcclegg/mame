@@ -213,6 +213,7 @@ final class ArkanoidStateReader: @unchecked Sendable {
         paddle.frame(state: decoded, layout: layout)
         quick.frame(state: decoded)
         store.publish(decoded)
+        PerfLog.shared.emulatedFrame()
     }
 
     // MARK: - calibration

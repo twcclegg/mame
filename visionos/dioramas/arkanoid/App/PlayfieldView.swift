@@ -190,6 +190,7 @@ struct HUDView: View {
     var body: some View {
         VStack(spacing: 10) {
             scoreBoard
+            ControllerStatusView()
             HStack(spacing: 12) {
                 if model.running {
                     Button("New game", systemImage: "arrow.counterclockwise") { model.newGame() }

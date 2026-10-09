@@ -60,6 +60,8 @@ final class PlayfieldScene {
     private let vaus = VausModel()
     private var vausX: Float = 112
     private var vausWidth: Float = 32
+    /// The Vaus's width before the screen edge started cutting it off (warp exit).
+    private var vausFullWidth: Float = 32
     private var vausPhase = Int32(ARK3D_VAUS_NONE.rawValue)
     private var vausAppear: Float = 1               // 0-1 while materialising
     private var balls: [BallModel] = []
@@ -508,18 +510,27 @@ final class PlayfieldScene {
             enemies.append(e)
         }
 
-        var laserMat = UnlitMaterial(color: UIColor(red: 1, green: 0.9, blue: 0.3, alpha: 1))
-        laserMat.blending = .transparent(opacity: .init(floatLiteral: 0.9))
-        // modern: long beams of red light with a white-hot core, which bloom
+        // each laser shot is one sprite with two beams, 13 px apart (the laser
+        // Vaus's cannons), yellow in the game: here glowing yellow bolts with
+        // a white-hot core
         var beamMat = PhysicallyBasedMaterial()
-        beamMat.baseColor = .init(tint: UIColor(red: 1, green: 0.2, blue: 0.3, alpha: 1))
-        beamMat.emissiveColor = .init(color: UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1))
-        beamMat.emissiveIntensity = 4
+        beamMat.baseColor = .init(tint: UIColor(red: 1, green: 0.85, blue: 0.2, alpha: 1))
+        beamMat.emissiveColor = .init(color: UIColor(red: 1, green: 0.8, blue: 0.15, alpha: 1))
+        beamMat.emissiveIntensity = 3
+        let coreMat = UnlitMaterial(color: UIColor(red: 1, green: 1, blue: 0.85, alpha: 1))
         let modernLasers = DioramaStyle.current != .classic
+        let beam = MeshResource.generateBox(width: 1.8 * s, height: 1.8 * s, depth: (modernLasers ? 12 : 8) * s, cornerRadius: 0.8 * s)
+        let core = MeshResource.generateBox(width: 0.7 * s, height: 0.7 * s, depth: (modernLasers ? 13 : 9) * s)
         for _ in 0..<6 {
-            let l = ModelEntity(mesh: modernLasers ? .generateBox(width: 1 * s, height: 1 * s, depth: 26 * s, cornerRadius: 0.5 * s)
-                                                   : .generateBox(width: 1.5 * s, height: 1.5 * s, depth: 8 * s),
-                                materials: [modernLasers ? beamMat : laserMat])
+            let l = ModelEntity()
+            for side: Float in [-1, 1] {
+                let b = ModelEntity(mesh: beam, materials: [beamMat])
+                let c = ModelEntity(mesh: core, materials: [coreMat])
+                b.position.x = side * VausModel.cannonOffset * s
+                c.position.x = b.position.x
+                l.addChild(b)
+                l.addChild(c)
+            }
             l.isEnabled = false
             field.addChild(l)
             lasers.append(l)
@@ -598,7 +609,9 @@ final class PlayfieldScene {
     func update(deltaTime dt: Float) {
         if showDebugScreen { screen?.update() }
 
-        if let newSerial = store.copy(since: serial, into: state) {
+        let newState = store.copy(since: serial, into: state)
+        PerfLog.shared.renderedFrame(dt: dt, newState: newState != nil)
+        if let newSerial = newState {
             serial = newSerial
             hasState = true
             applyBricks()
@@ -862,10 +875,22 @@ final class PlayfieldScene {
         }
         vaus.isEnabled = s.vaus_visible != 0 && phase != Int32(ARK3D_VAUS_EXPLODING.rawValue)
         if vaus.isEnabled {
-            let p = ease(SIMD2(vausX, s.vaus_y), SIMD2(s.vaus_x, s.vaus_y), dt: dt, rate: 40)
+            // leaving through the warp gate, the game drops the Vaus's sprites
+            // one by one as they pass the screen's edge, so the decoded Vaus
+            // narrows and re-centres on what's left.  Keep its full width and
+            // place it by its left edge instead: it slides out whole.
+            var targetX = s.vaus_x, targetW = s.vaus_w
+            let rightEdge = s.vaus_x + s.vaus_w / 2
+            if warpShown > 0.5 && rightEdge >= Float(ARK3D_VIEW_W) - 1 && s.vaus_w < vausFullWidth - 1 {
+                targetW = vausFullWidth
+                targetX = s.vaus_x - s.vaus_w / 2 + vausFullWidth / 2
+            } else if phase == Int32(ARK3D_VAUS_NORMAL.rawValue) && rightEdge < Float(ARK3D_VIEW_W) - 1 {
+                vausFullWidth = max(s.vaus_w, 8)
+            }
+            let p = ease(SIMD2(vausX, s.vaus_y), SIMD2(targetX, s.vaus_y), dt: dt, rate: 40)
             vausX = p.x
             if phase == Int32(ARK3D_VAUS_NORMAL.rawValue) {
-                vausWidth += (max(s.vaus_w, 8) - vausWidth) * min(1, dt * 12)
+                vausWidth += (max(targetW, 8) - vausWidth) * min(1, dt * 12)
             }
             vausAppear = min(1, vausAppear + dt * 2)
             vaus.setWidth(vausWidth)

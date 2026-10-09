@@ -46,14 +46,20 @@ private func neon(_ color: UIColor, _ intensity: Float) -> PhysicallyBasedMateri
 // MARK: - Vaus
 
 /// The Vaus: a silver hull that stretches with the game's width, red pods at
-/// the ends with a glowing blue band between hull and pods, and laser
-/// barrels when it has them.  Origin at its centre, resting on the floor.
+/// the ends with a glowing blue band between hull and pods.  With the laser
+/// (L capsule) it changes form as in the game: the red pods give way to
+/// tapered grey ends with cyan tips, orange trim, and two cannons on the hull
+/// 6.5 px either side of its centre, where the game's twin beams come from.
+/// Origin at its centre, resting on the floor.
 @MainActor
 final class VausModel: Entity {
     private let hull = ModelEntity()
     private let pods = [Entity(), Entity()]
     private let bands = [ModelEntity(), ModelEntity()]
     private let barrels = [ModelEntity(), ModelEntity()]
+    private let laserEnds = [Entity(), Entity()]
+    /// The game's twin beams leave the laser Vaus this far either side of its centre.
+    static let cannonOffset: Float = 6.5
     static let height: Float = 7          // px, the sprite's 8 minus its outline
     private static let podLength: Float = 7
 
@@ -92,7 +98,29 @@ final class VausModel: Entity {
             barrels[i].model = ModelComponent(mesh: .generateCylinder(height: 6 * px, radius: 0.9 * px), materials: [barrelMat])
             barrels[i].orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])      // pointing up the field (-z)
             barrels[i].isEnabled = false
-            pod.addChild(barrels[i])
+            addChild(barrels[i])
+
+            // the laser form's end: a short grey drum tapering to a point
+            // with a cyan tip, an orange ring where it meets the hull
+            let end = laserEnds[i]
+            let grey = modern ? chrome : pbr(UIColor(white: 0.7, alpha: 1), metallic: 1, roughness: 0.2)
+            let drum = shadowed(ModelEntity(mesh: .generateCylinder(height: 2.5 * px, radius: r), materials: [grey]))
+            drum.orientation = alongX
+            drum.position.x = side * 1.25 * px
+            let taper = shadowed(ModelEntity(mesh: .generateCone(height: 4 * px, radius: r), materials: [grey]))
+            // cone apex along +y: lay it along x, pointing outward
+            taper.orientation = simd_quatf(angle: -side * .pi / 2, axis: [0, 0, 1])
+            taper.position.x = side * (2.5 + 2) * px
+            let tip = ModelEntity(mesh: .generateSphere(radius: 0.9 * px),
+                                  materials: [neon(UIColor(red: 0.3, green: 0.95, blue: 1, alpha: 1), 3)])
+            tip.position.x = side * 5.8 * px
+            let trim = ModelEntity(mesh: .generateCylinder(height: 0.8 * px, radius: r * 1.06),
+                                   materials: [neon(UIColor(red: 1, green: 0.35, blue: 0.05, alpha: 1), 1.5)])
+            trim.orientation = alongX
+            for e in [drum, taper, tip, trim] { end.addChild(e) }
+            end.position.y = r
+            end.isEnabled = false
+            addChild(end)
         }
     }
 
@@ -104,24 +132,35 @@ final class VausModel: Entity {
             let side: Float = i == 0 ? -1 : 1
             pod.position.x = side * (hullLength / 2 + (Self.podLength - 2) / 2) * px
             bands[i].position.x = side * (hullLength / 2) * px
+            laserEnds[i].position.x = side * (hullLength / 2) * px
         }
     }
 
     func setLaser(_ on: Bool) {
-        for b in barrels {
+        for (i, b) in barrels.enumerated() {
+            let side: Float = i == 0 ? -1 : 1
             b.isEnabled = on
-            b.position = [0, Self.height / 2 * px, -3 * px]
+            b.position = [side * Self.cannonOffset * px, Self.height * px * 0.8, -2 * px]
+            pods[i].isEnabled = !on
+            bands[i].isEnabled = !on
+            laserEnds[i].isEnabled = on
         }
     }
 }
 
 // MARK: - enemies
 
-/// One enemy: a shape per type, spinning and bobbing.
+/// One enemy: a shape per type, after the game's sprites (rendered from the
+/// ROM to compare): the molecule, three glossy balls turning as a cluster;
+/// the "cube", which morphs between a red cube and a shiny red ball; the
+/// pyramid, a hollow green wireframe with a red eye inside, tumbling; the
+/// cone, a light-blue spinning top with a ring, tumbling.
 @MainActor
 final class EnemyModel: Entity {
     private var shapes: [Int: Entity] = [:]
     private(set) var type = -1
+    private let morphCube = ModelEntity()
+    private let morphBall = ModelEntity()
 
     required init() {
         super.init()
@@ -132,34 +171,39 @@ final class EnemyModel: Entity {
                                      UIColor(red: 0, green: 0.85, blue: 1, alpha: 1)]
         for i in 0..<3 {
             let a = Float(i) * 2 * .pi / 3
-            let b = shadowed(ModelEntity(mesh: .generateSphere(radius: 3.2 * px),
-                                         materials: [pbr(ballColors[i], roughness: 0.2, clearcoat: 1)]))
-            b.position = [cos(a) * 3.4 * px, 0, sin(a) * 3.4 * px]
+            let b = shadowed(ModelEntity(mesh: .generateSphere(radius: 3.8 * px),
+                                         materials: [pbr(ballColors[i], roughness: 0.12, clearcoat: 1)]))
+            b.position = [cos(a) * 3.6 * px, sin(a) * 1.2 * px, sin(a) * 3.6 * px]
             molecule.addChild(b)
         }
         shapes[Int(ARK3D_ENEMY_MOLECULE.rawValue)] = molecule
 
-        shapes[Int(ARK3D_ENEMY_CUBE.rawValue)] = shadowed(ModelEntity(
-            mesh: .generateBox(size: 8 * px, cornerRadius: 1 * px),
-            // red, shaded darker in the game (colour group 10)
-            materials: [pbr(UIColor(red: 0.95, green: 0.05, blue: 0.05, alpha: 1), metallic: 0.3, roughness: 0.25, clearcoat: 1,
-                            emissive: UIColor(red: 0.4, green: 0, blue: 0, alpha: 1), emissiveIntensity: 0.4)]))
+        // red, shaded darker in the game (colour group 10); it turns into a ball and back
+        let red = pbr(UIColor(red: 0.95, green: 0.05, blue: 0.05, alpha: 1), metallic: 0.3, roughness: 0.2, clearcoat: 1,
+                      emissive: UIColor(red: 0.4, green: 0, blue: 0, alpha: 1), emissiveIntensity: 0.4)
+        let morph = Entity()
+        morphCube.model = ModelComponent(mesh: .generateBox(size: 10 * px, cornerRadius: 1.2 * px), materials: [red])
+        morphBall.model = ModelComponent(mesh: .generateSphere(radius: 6 * px),
+                                         materials: [pbr(UIColor(red: 1, green: 0.08, blue: 0.08, alpha: 1), roughness: 0.05, clearcoat: 1,
+                                                         emissive: UIColor(red: 0.35, green: 0, blue: 0, alpha: 1), emissiveIntensity: 0.4)])
+        morph.addChild(shadowed(morphCube))
+        morph.addChild(shadowed(morphBall))
+        shapes[Int(ARK3D_ENEMY_CUBE.rawValue)] = morph
 
-        shapes[Int(ARK3D_ENEMY_PYRAMID.rawValue)] = shadowed(ModelEntity(
-            mesh: Self.pyramid(base: 11 * px, height: 10 * px),
-            materials: [pbr(UIColor(red: 0.3, green: 0.9, blue: 0.4, alpha: 1), roughness: 0.3, clearcoat: 1,
-                            emissive: UIColor(red: 0, green: 0.3, blue: 0.1, alpha: 1), emissiveIntensity: 0.5)]))
+        shapes[Int(ARK3D_ENEMY_PYRAMID.rawValue)] = Self.wirePyramid(base: 12 * px, height: 11 * px)
 
         let cone = Entity()
         // blues from the game's palette (colour group 12)
         let coneBody = shadowed(ModelEntity(mesh: .generateCone(height: 11 * px, radius: 4.5 * px),
-                                            materials: [pbr(UIColor(red: 0, green: 0.68, blue: 1, alpha: 1), metallic: 0.4, roughness: 0.25,
-                                                            clearcoat: 1)]))
-        let disc = shadowed(ModelEntity(mesh: .generateCylinder(height: 1 * px, radius: 6.5 * px),
-                                        materials: [pbr(UIColor(red: 0, green: 0, blue: 0.68, alpha: 1), metallic: 0.6, roughness: 0.2)]))
-        disc.position.y = -4 * px
+                                            materials: [pbr(UIColor(red: 0.25, green: 0.75, blue: 1, alpha: 1), metallic: 0.3,
+                                                            roughness: 0.15, clearcoat: 1)]))
+        coneBody.position.y = 1 * px
+        let ring = shadowed(ModelEntity(mesh: .generateCylinder(height: 1.4 * px, radius: 6.8 * px),
+                                        materials: [pbr(UIColor(red: 0.1, green: 0.45, blue: 1, alpha: 1), metallic: 0.6, roughness: 0.15,
+                                                        clearcoat: 1)]))
+        ring.position.y = -3 * px
         cone.addChild(coneBody)
-        cone.addChild(disc)
+        cone.addChild(ring)
         shapes[Int(ARK3D_ENEMY_CONE.rawValue)] = cone
 
         shapes[Int(ARK3D_ENEMY_UNKNOWN.rawValue)] = shadowed(ModelEntity(
@@ -171,6 +215,37 @@ final class EnemyModel: Entity {
         }
     }
 
+    /// The pyramid enemy: glowing green edges, faint faces, a red eye inside.
+    private static func wirePyramid(base: Float, height: Float) -> Entity {
+        let root = Entity()
+        let edgeMat = pbr(UIColor(red: 0.2, green: 1, blue: 0.3, alpha: 1), roughness: 0.3,
+                          emissive: UIColor(red: 0.1, green: 0.9, blue: 0.2, alpha: 1), emissiveIntensity: 1.5)
+        let h = base / 2, top = SIMD3<Float>(0, height / 2, 0)
+        let corners: [SIMD3<Float>] = [[-h, -height / 2, -h], [h, -height / 2, -h], [h, -height / 2, h], [-h, -height / 2, h]]
+        var edges: [(SIMD3<Float>, SIMD3<Float>)] = []
+        for i in 0..<4 {
+            edges.append((corners[i], corners[(i + 1) % 4]))
+            edges.append((corners[i], top))
+        }
+        let bar = MeshResource.generateBox(width: 1 * px, height: 1 * px, depth: 1)
+        for (a, b) in edges {
+            let e = ModelEntity(mesh: bar, materials: [edgeMat])
+            e.look(at: b, from: (a + b) / 2, relativeTo: nil)
+            e.scale = [1, 1, simd_distance(a, b) + 1 * px]
+            root.addChild(e)
+        }
+        var faceMat = PhysicallyBasedMaterial()
+        faceMat.baseColor = .init(tint: UIColor(red: 0, green: 0.4, blue: 0.1, alpha: 1))
+        faceMat.blending = .transparent(opacity: .init(floatLiteral: 0.25))
+        root.addChild(ModelEntity(mesh: pyramid(base: base, height: height), materials: [faceMat]))
+        let eye = ModelEntity(mesh: .generateSphere(radius: 1.8 * px),
+                              materials: [pbr(UIColor(red: 1, green: 0.1, blue: 0.05, alpha: 1), roughness: 0.2,
+                                              emissive: UIColor(red: 1, green: 0.1, blue: 0.05, alpha: 1), emissiveIntensity: 2)])
+        eye.position.y = -height / 2 + height * 0.3
+        root.addChild(eye)
+        return root
+    }
+
     func show(type: Int) {
         guard type != self.type else { return }
         shapes[self.type]?.isEnabled = false
@@ -178,12 +253,33 @@ final class EnemyModel: Entity {
         shapes[self.type]?.isEnabled = true
     }
 
-    /// Spin and bob; `t` in seconds, `seed` keeps enemies out of step.
+    /// Spin, tumble and bob; `t` in seconds, `seed` keeps enemies out of step.
     func animate(t: Float, seed: Float) {
-        position.y = (8 + 1.5 * sin(t * 4 + seed)) * px
+        position.y = (9 + 1.5 * sin(t * 4 + seed)) * px
         let spin = simd_quatf(angle: t * 1.8 + seed, axis: [0, 1, 0])
-        let tumble = type == Int(ARK3D_ENEMY_CUBE.rawValue) ? simd_quatf(angle: t * 1.3, axis: simd_normalize([1, 0, 1])) : simd_quatf()
-        shapes[type]?.orientation = spin * tumble
+        var orientation = spin
+        switch type {
+        case Int(ARK3D_ENEMY_CUBE.rawValue):
+            orientation = spin * simd_quatf(angle: t * 1.3, axis: simd_normalize([1, 0, 1]))
+            // cube -> ball -> cube, about every 3.5 s, as in the game
+            let w = 0.5 + 0.5 * sin(t * 1.8 + seed)
+            let k = min(1, max(0, (w - 0.35) / 0.3))
+            let ball = k * k * (3 - 2 * k)
+            morphCube.scale = SIMD3(repeating: max(0.001, 1 - ball))
+            morphBall.scale = SIMD3(repeating: max(0.001, ball))
+        case Int(ARK3D_ENEMY_PYRAMID.rawValue), Int(ARK3D_ENEMY_CONE.rawValue):
+            // tumbling end over end, not just turning
+            orientation = spin * simd_quatf(angle: 0.6 * sin(t * 2.2 + seed), axis: [1, 0, 0])
+        case Int(ARK3D_ENEMY_MOLECULE.rawValue):
+            orientation = spin * simd_quatf(angle: t * 0.9, axis: simd_normalize([1, 0, 0.4]))
+        default:
+            break
+        }
+        // the shapes are built standing on the board (+y out of it); upright,
+        // that's toward the viewer, so stand them up the screen (-z) instead,
+        // as the game draws them: the cone's point and the pyramid's apex up
+        let stand = PlayfieldScene.upright ? simd_quatf(angle: -.pi / 2, axis: [1, 0, 0]) : simd_quatf()
+        shapes[type]?.orientation = stand * orientation
     }
 
     /// Square pyramid on the xz plane, apex up, centred on its middle height.
