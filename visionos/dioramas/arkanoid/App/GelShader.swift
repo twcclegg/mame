@@ -24,6 +24,32 @@ import os
 
 private let log = Logger(subsystem: "org.mamedev.diorama.arkanoid", category: "gel")
 
+/// What the gel shader computes per pixel, for trading looks against frame
+/// rate on device (full gel ran at 45 fps on a Vision Pro, half its 90).
+/// From the environment (GEL_BUBBLES, GEL_REFRACT, GEL_SHIMMER, GEL_OPAQUE).
+struct GelQuality {
+    enum Bubbles: String { case worley, sine, off }
+    /// worley: 3D cellular noise (27 cells a pixel); sine: a speckle from
+    /// three sines; off: none
+    var bubbles: Bubbles = .sine
+    /// a second environment lookup along the refracted direction; without
+    /// it, what's behind is the reflection lookup's diffuse light
+    var refract = false
+    /// a band of light rolling across the wall: off (distracting, says the player)
+    var shimmer = false
+    var opaque = false
+
+    nonisolated static let current: GelQuality = {
+        let env = ProcessInfo.processInfo.environment
+        var q = GelQuality()
+        if let b = env["GEL_BUBBLES"].flatMap(Bubbles.init(rawValue:)) { q.bubbles = b }
+        if let v = env["GEL_REFRACT"] { q.refract = v == "1" }
+        if let v = env["GEL_SHIMMER"] { q.shimmer = v == "1" }
+        if let v = env["GEL_OPAQUE"] { q.opaque = v == "1" }
+        return q
+    }()
+}
+
 @MainActor
 enum GelShader {
     private(set) static var base: ShaderGraphMaterial?
@@ -34,7 +60,7 @@ enum GelShader {
         guard base == nil else { return }
         do {
             base = try await ShaderGraphMaterial(named: "/Root/Gel", from: Data(usda.utf8))
-            log.info("gel shader loaded")
+            log.info("gel shader loaded: \(String(describing: GelQuality.current), privacy: .public)")
         } catch {
             log.error("gel shader failed to load: \(String(describing: error), privacy: .public)")
         }
@@ -73,6 +99,7 @@ enum GelShader {
     private static let g = "/Root/Gel"
 
     private static let usda: String = {
+        let q = GelQuality.current
         var s = """
         #usda 1.0
         (
@@ -131,44 +158,46 @@ enum GelShader {
                     color3f outputs:diffuseRadiance
                     color3f outputs:specularRadiance
         """)
-        // refraction: t = normalize(-V - 0.35 N); sample about normalize(V + t)
-        s += node("NegV", "ND_multiply_vector3FA", """
-                    float3 inputs:in1.connect = <\(g)/V.outputs:out>
-                    float inputs:in2 = -1
-                    float3 outputs:out
-        """)
-        s += node("Bend", "ND_multiply_vector3FA", """
-                    float3 inputs:in1.connect = <\(g)/N.outputs:out>
-                    float inputs:in2 = -0.35
-                    float3 outputs:out
-        """)
-        s += node("TSum", "ND_add_vector3", """
-                    float3 inputs:in1.connect = <\(g)/NegV.outputs:out>
-                    float3 inputs:in2.connect = <\(g)/Bend.outputs:out>
-                    float3 outputs:out
-        """)
-        s += node("T", "ND_normalize_vector3", """
-                    float3 inputs:in.connect = <\(g)/TSum.outputs:out>
-                    float3 outputs:out
-        """)
-        s += node("HSum", "ND_add_vector3", """
-                    float3 inputs:in1.connect = <\(g)/V.outputs:out>
-                    float3 inputs:in2.connect = <\(g)/T.outputs:out>
-                    float3 outputs:out
-        """)
-        s += node("H", "ND_normalize_vector3", """
-                    float3 inputs:in.connect = <\(g)/HSum.outputs:out>
-                    float3 outputs:out
-        """)
-        s += node("Through", "ND_realitykit_environment_radiance", """
-                    color3f inputs:baseColor = (1, 1, 1)
-                    half inputs:metallic = 0
-                    half inputs:roughness = 0.22
-                    half inputs:specular = 1
-                    float3 inputs:normal.connect = <\(g)/H.outputs:out>
-                    color3f outputs:diffuseRadiance
-                    color3f outputs:specularRadiance
-        """)
+        if q.refract {
+            // refraction: t = normalize(-V - 0.35 N); sample about normalize(V + t)
+            s += node("NegV", "ND_multiply_vector3FA", """
+                        float3 inputs:in1.connect = <\(g)/V.outputs:out>
+                        float inputs:in2 = -1
+                        float3 outputs:out
+            """)
+            s += node("Bend", "ND_multiply_vector3FA", """
+                        float3 inputs:in1.connect = <\(g)/N.outputs:out>
+                        float inputs:in2 = -0.35
+                        float3 outputs:out
+            """)
+            s += node("TSum", "ND_add_vector3", """
+                        float3 inputs:in1.connect = <\(g)/NegV.outputs:out>
+                        float3 inputs:in2.connect = <\(g)/Bend.outputs:out>
+                        float3 outputs:out
+            """)
+            s += node("T", "ND_normalize_vector3", """
+                        float3 inputs:in.connect = <\(g)/TSum.outputs:out>
+                        float3 outputs:out
+            """)
+            s += node("HSum", "ND_add_vector3", """
+                        float3 inputs:in1.connect = <\(g)/V.outputs:out>
+                        float3 inputs:in2.connect = <\(g)/T.outputs:out>
+                        float3 outputs:out
+            """)
+            s += node("H", "ND_normalize_vector3", """
+                        float3 inputs:in.connect = <\(g)/HSum.outputs:out>
+                        float3 outputs:out
+            """)
+            s += node("Through", "ND_realitykit_environment_radiance", """
+                        color3f inputs:baseColor = (1, 1, 1)
+                        half inputs:metallic = 0
+                        half inputs:roughness = 0.22
+                        half inputs:specular = 1
+                        float3 inputs:normal.connect = <\(g)/H.outputs:out>
+                        color3f outputs:diffuseRadiance
+                        color3f outputs:specularRadiance
+            """)
+        }
         // iridescence: hue from the viewing angle, drifting with time
         s += node("Time", "ND_time_float", """
                     float outputs:out
@@ -212,7 +241,7 @@ enum GelShader {
                     color3f outputs:out
         """)
         s += node("Body", "ND_multiply_color3", """
-                    color3f inputs:in1.connect = <\(g)/Through.outputs:specularRadiance>
+                    color3f inputs:in1.connect = <\(g)/\(q.refract ? "Through.outputs:specularRadiance" : "Reflect.outputs:diffuseRadiance")>
                     color3f inputs:in2.connect = <\(g)/Colour2.outputs:out>
                     color3f outputs:out
         """)
@@ -232,44 +261,46 @@ enum GelShader {
                     float inputs:in2.connect = <\(g).inputs:Glow>
                     float outputs:out
         """)
-        // shimmer: a band rolling across the wall, sin(1.4 t + 9 x + 5 y)^8
-        s += node("P", "ND_position_vector3", """
-                    string inputs:space = "world"
-                    float3 outputs:out
-        """)
-        s += node("PDot", "ND_dotproduct_vector3", """
-                    float3 inputs:in1.connect = <\(g)/P.outputs:out>
-                    float3 inputs:in2 = (9, 5, 3)
-                    float outputs:out
-        """)
-        s += node("TimeScaled", "ND_multiply_float", """
-                    float inputs:in1.connect = <\(g)/Time.outputs:out>
-                    float inputs:in2 = 1.4
-                    float outputs:out
-        """)
-        s += node("Phase", "ND_add_float", """
-                    float inputs:in1.connect = <\(g)/PDot.outputs:out>
-                    float inputs:in2.connect = <\(g)/TimeScaled.outputs:out>
-                    float outputs:out
-        """)
-        s += node("Wave", "ND_sin_float", """
-                    float inputs:in.connect = <\(g)/Phase.outputs:out>
-                    float outputs:out
-        """)
-        s += node("WaveUp", "ND_smoothstep_float", """
-                    float inputs:in.connect = <\(g)/Wave.outputs:out>
-                    float inputs:low = 0.7
-                    float inputs:high = 1
-                    float outputs:out
-        """)
-        s += node("Shimmer", "ND_multiply_float", """
-                    float inputs:in1.connect = <\(g)/WaveUp.outputs:out>
-                    float inputs:in2 = 0.9
-                    float outputs:out
-        """)
+        if q.shimmer {
+            // shimmer: a band rolling across the wall, sin(1.4 t + 9 x + 5 y)^8
+            s += node("P", "ND_position_vector3", """
+                        string inputs:space = "world"
+                        float3 outputs:out
+            """)
+            s += node("PDot", "ND_dotproduct_vector3", """
+                        float3 inputs:in1.connect = <\(g)/P.outputs:out>
+                        float3 inputs:in2 = (9, 5, 3)
+                        float outputs:out
+            """)
+            s += node("TimeScaled", "ND_multiply_float", """
+                        float inputs:in1.connect = <\(g)/Time.outputs:out>
+                        float inputs:in2 = 1.4
+                        float outputs:out
+            """)
+            s += node("Phase", "ND_add_float", """
+                        float inputs:in1.connect = <\(g)/PDot.outputs:out>
+                        float inputs:in2.connect = <\(g)/TimeScaled.outputs:out>
+                        float outputs:out
+            """)
+            s += node("Wave", "ND_sin_float", """
+                        float inputs:in.connect = <\(g)/Phase.outputs:out>
+                        float outputs:out
+            """)
+            s += node("WaveUp", "ND_smoothstep_float", """
+                        float inputs:in.connect = <\(g)/Wave.outputs:out>
+                        float inputs:low = 0.7
+                        float inputs:high = 1
+                        float outputs:out
+            """)
+            s += node("Shimmer", "ND_multiply_float", """
+                        float inputs:in1.connect = <\(g)/WaveUp.outputs:out>
+                        float inputs:in2 = 0.9
+                        float outputs:out
+            """)
+        }
         s += node("GlowTotal", "ND_add_float", """
                     float inputs:in1.connect = <\(g)/GlowAmount.outputs:out>
-                    float inputs:in2.connect = <\(g)/Shimmer.outputs:out>
+                    float inputs:in2\(q.shimmer ? ".connect = <\(g)/Shimmer.outputs:out>" : " = 0")
                     float outputs:out
         """)
         s += node("GlowColour", "ND_multiply_color3FA", """
@@ -277,36 +308,88 @@ enum GelShader {
                     float inputs:in2.connect = <\(g)/GlowTotal.outputs:out>
                     color3f outputs:out
         """)
-        // bubbles: small cells of worley noise in object space
-        s += node("PO", "ND_position_vector3", """
-                    string inputs:space = "object"
-                    float3 outputs:out
-        """)
-        s += node("POScaled", "ND_multiply_vector3FA", """
-                    float3 inputs:in1.connect = <\(g)/PO.outputs:out>
-                    float inputs:in2 = 260
-                    float3 outputs:out
-        """)
-        s += node("Cells", "ND_worleynoise3d_float", """
-                    float3 inputs:position.connect = <\(g)/POScaled.outputs:out>
-                    float inputs:jitter = 1
-                    float outputs:out
-        """)
-        s += node("Bubble", "ND_smoothstep_float", """
-                    float inputs:in.connect = <\(g)/Cells.outputs:out>
-                    float inputs:low = 0.16
-                    float inputs:high = 0.06
-                    float outputs:out
-        """)
-        s += node("BubbleLight", "ND_convert_float_color3", """
-                    float inputs:in.connect = <\(g)/Bubble.outputs:out>
-                    color3f outputs:out
-        """)
-        s += node("BubbleColour", "ND_multiply_color3FA", """
-                    color3f inputs:in1.connect = <\(g)/BubbleLight.outputs:out>
-                    float inputs:in2 = 0.55
-                    color3f outputs:out
-        """)
+        // bubbles: specks suspended in the glass, in object space
+        switch q.bubbles {
+        case .worley:
+            // small cells of worley noise: the look, but 27 cells a pixel
+            s += node("PO", "ND_position_vector3", """
+                        string inputs:space = "object"
+                        float3 outputs:out
+            """)
+            s += node("POScaled", "ND_multiply_vector3FA", """
+                        float3 inputs:in1.connect = <\(g)/PO.outputs:out>
+                        float inputs:in2 = 260
+                        float3 outputs:out
+            """)
+            s += node("Cells", "ND_worleynoise3d_float", """
+                        float3 inputs:position.connect = <\(g)/POScaled.outputs:out>
+                        float inputs:jitter = 1
+                        float outputs:out
+            """)
+            s += node("Bubble", "ND_smoothstep_float", """
+                        float inputs:in.connect = <\(g)/Cells.outputs:out>
+                        float inputs:low = 0.16
+                        float inputs:high = 0.06
+                        float outputs:out
+            """)
+        case .sine:
+            // a speckle from three sines at unrelated frequencies: where all
+            // three peak together, a bubble.  A few multiplies a pixel.
+            s += node("PO", "ND_position_vector3", """
+                        string inputs:space = "object"
+                        float3 outputs:out
+            """)
+            for (axis, freq, phase) in [("x", 1310.0, 0.0), ("y", 1730.0, 1.3), ("z", 1490.0, 2.1)] {
+                s += node("PO\(axis)", "ND_extract_vector3", """
+                            float3 inputs:in.connect = <\(g)/PO.outputs:out>
+                            int inputs:index = \(axis == "x" ? 0 : axis == "y" ? 1 : 2)
+                            float outputs:out
+                """)
+                s += node("Arg\(axis)", "ND_multiply_float", """
+                            float inputs:in1.connect = <\(g)/PO\(axis).outputs:out>
+                            float inputs:in2 = \(freq)
+                            float outputs:out
+                """)
+                s += node("Arg\(axis)p", "ND_add_float", """
+                            float inputs:in1.connect = <\(g)/Arg\(axis).outputs:out>
+                            float inputs:in2 = \(phase)
+                            float outputs:out
+                """)
+                s += node("Sin\(axis)", "ND_sin_float", """
+                            float inputs:in.connect = <\(g)/Arg\(axis)p.outputs:out>
+                            float outputs:out
+                """)
+            }
+            s += node("Sxy", "ND_multiply_float", """
+                        float inputs:in1.connect = <\(g)/Sinx.outputs:out>
+                        float inputs:in2.connect = <\(g)/Siny.outputs:out>
+                        float outputs:out
+            """)
+            s += node("Sxyz", "ND_multiply_float", """
+                        float inputs:in1.connect = <\(g)/Sxy.outputs:out>
+                        float inputs:in2.connect = <\(g)/Sinz.outputs:out>
+                        float outputs:out
+            """)
+            s += node("Bubble", "ND_smoothstep_float", """
+                        float inputs:in.connect = <\(g)/Sxyz.outputs:out>
+                        float inputs:low = 0.82
+                        float inputs:high = 0.97
+                        float outputs:out
+            """)
+        case .off:
+            break
+        }
+        if q.bubbles != .off {
+            s += node("BubbleLight", "ND_convert_float_color3", """
+                        float inputs:in.connect = <\(g)/Bubble.outputs:out>
+                        color3f outputs:out
+            """)
+            s += node("BubbleColour", "ND_multiply_color3FA", """
+                        color3f inputs:in1.connect = <\(g)/BubbleLight.outputs:out>
+                        float inputs:in2 = 0.55
+                        color3f outputs:out
+            """)
+        }
         // reflection weighted by Fresnel, with a floor so faces still gleam
         s += node("ReflAmount", "ND_add_float", """
                     float inputs:in1.connect = <\(g)/Fresnel.outputs:out>
@@ -330,7 +413,7 @@ enum GelShader {
         """)
         s += node("Sum2", "ND_add_color3", """
                     color3f inputs:in1.connect = <\(g)/Sum1.outputs:out>
-                    color3f inputs:in2.connect = <\(g)/BubbleColour.outputs:out>
+                    color3f inputs:in2\(q.bubbles != .off ? ".connect = <\(g)/BubbleColour.outputs:out>" : " = (0, 0, 0)")
                     color3f outputs:out
         """)
         s += node("Final", "ND_add_color3", """
@@ -359,7 +442,7 @@ enum GelShader {
                     bool inputs:applyPostProcessToneMap = 1
                     color3f inputs:color.connect = <\(g)/Final.outputs:out>
                     bool inputs:hasPremultipliedAlpha = 1
-                    float inputs:opacity.connect = <\(g)/Alpha.outputs:out>
+                    float inputs:opacity\(q.opaque ? " = 1" : ".connect = <\(g)/Alpha.outputs:out>")
                     token outputs:out
         """)
         s += """

@@ -42,6 +42,13 @@ final class GameControllerInput: @unchecked Sendable {
     // on-screen / gesture buttons for player 1 (MYOSD_* bits), for playing
     // without a controller: held while set, or pressed until a deadline
     private var virtualHeld: UInt32 = 0
+    private var withheld: UInt32 = 0
+
+    /// Buttons (MYOSD_* bits) the controllers don't press directly, because
+    /// the host presses them itself (e.g. rapid fire through setVirtual).
+    func withhold(_ bits: UInt32) {
+        lock.lock(); withheld = bits; lock.unlock()
+    }
     private var virtualPulses: [UInt32: TimeInterval] = [:]
 
     /// Presses `bits` for player 1 while `held` is true (e.g. fire while pinching).
@@ -65,6 +72,7 @@ final class GameControllerInput: @unchecked Sendable {
         let now = ProcessInfo.processInfo.systemUptime
         virtualPulses = virtualPulses.filter { $0.value > now }
         let virtual = virtualPulses.keys.reduce(virtualHeld, |)
+        let withheld = self.withheld
         lock.unlock()
 
         let joyCount = Int(MYOSD_NUM_JOY)
@@ -105,7 +113,7 @@ final class GameControllerInput: @unchecked Sendable {
             if gp.rightTrigger.isPressed { bits |= MYOSD_R2.rawValue }
             if gp.leftThumbstickButton?.isPressed ?? false { bits |= MYOSD_L3.rawValue }
             if gp.rightThumbstickButton?.isPressed ?? false { bits |= MYOSD_R3.rawValue }
-            status[i] = UInt(bits)
+            status[i] = UInt(bits & ~withheld)
 
             // analog: libmame flips Y itself (up is positive here)
             let base = i * axes

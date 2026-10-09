@@ -10,13 +10,14 @@
 // would otherwise use for the dial, so the stick and d-pad are handled here
 // too (as target velocity).
 //
-// Measured on the real game (a Lua bot driving the same loop through the
-// same analog override, visionos/dioramas/arkanoid/lua/ark3d_bot.lua): about +1 px
-// per count, positive to the right.  The magnitude is still learned while
-// playing (px/count over a window of frames); the sign is not, because a
-// window with a wrong sign (e.g. the Vaus being re-centred for a new life)
-// used to flip it, after which the loop pushed the Vaus into a wall, where it
-// can't learn, forever.
+// Measured on the real game (desktop MAME, Lua driving the same analog
+// override): exactly +1 px per count, positive to the right, the whole step
+// at once, on screen 2 frames after it's sent, and no limit on the step.  So
+// the loop is deadbeat (frame() below): the Vaus reaches the target as fast
+// as the original's spinner would let it.
+//
+// Fire: A, RT and RB are rapid fire while held (the laser), pulsing
+// MAME's button 1 here; GameControllerInput leaves A to us.
 
 import Foundation
 import GameController
@@ -43,7 +44,11 @@ final class PaddleController: @unchecked Sendable {
     private var dragDelta: Float?               // view px since the pinch began (relative, like the spinner)
     private var _sensitivity: Float = 2
     private var _stickMode: StickMode = .speed
-    private var firing = false                  // RT / RB held (MAME thread)
+    private var firing = false                  // button 1 pressed by us (MAME thread)
+    private var fireFrames = 0                  // frames A / RT / RB has been held
+    private var withholdingFire = false         // A is ours (rapid fire) while the Vaus is in play
+    /// Rapid fire: pressed for half of every this many frames while held (15 a second).
+    static let rapidFirePeriod = 4
 
     var stickMode: StickMode {
         get { lock.lock(); defer { lock.unlock() }; return _stickMode }
@@ -78,11 +83,7 @@ final class PaddleController: @unchecked Sendable {
     private var target: Float?
     private var dragAnchor: Float?              // Vaus x when the pinch began
     private var counter: Int32 = 0
-    private var gain: Float = 1                 // measured px per count (the game: about +1)
-    private var windowSteps: Int32 = 0
-    private var windowMove: Float = 0
-    private var windowFrames = 0
-    private var lastVausX: Float?
+    private var lastStep: Int32 = 0             // sent last frame, not yet on screen
 
     /// How the left stick moves the Vaus.
     enum StickMode: Int, CaseIterable, Identifiable {
@@ -96,21 +97,32 @@ final class PaddleController: @unchecked Sendable {
     static let stickMaxSpeed: Float = 7         // px per frame at full deflection (field: 208 px)
     static let stickCurve: Float = 1.6          // speed ~ deflection^curve
     static let dpadSpeed: Float = 3             // px per frame
-    static let maxStep: Int32 = 12              // counts per frame
+    static let maxStep: Int32 = 60              // counts per frame (the 8-bit counter must not wrap)
+    static let pxPerCount: Float = 1            // the game, measured
     static let ports = [":P1", ":P2"]          // P2 is the cocktail player's spinner
 
     func reset() {
         target = nil
-        lastVausX = nil
-        windowSteps = 0; windowMove = 0; windowFrames = 0
+        lastStep = 0
     }
 
     /// Called on the MAME thread once per frame, after decoding.
     func frame(state: UnsafePointer<ark3d_state>, layout: ark3d_layout) {
         let s = state.pointee
         guard s.vaus_visible != 0 else {
-            lastVausX = nil
+            lastStep = 0
+            // no Vaus: A is the controller's again (MAME's menus use it)
+            if withholdingFire {
+                withholdingFire = false
+                firing = false
+                MAMEEngine.shared.input.setVirtual(MYOSD_A.rawValue, held: false)
+                MAMEEngine.shared.input.withhold(0)
+            }
             return
+        }
+        if !withholdingFire {
+            withholdingFire = true
+            MAMEEngine.shared.input.withhold(MYOSD_A.rawValue)
         }
         let vausX = s.vaus_x
         let halfWidth = s.vaus_w / 2
@@ -160,11 +172,14 @@ final class PaddleController: @unchecked Sendable {
             if gp.dpad.left.isPressed { stick = -Self.dpadSpeed }
             if gp.dpad.right.isPressed { stick = Self.dpadSpeed }
 
-            // RT and RB fire too, not just A (MAME's button 1)
-            let fire = gp.rightTrigger.isPressed || gp.rightShoulder.isPressed
-            if fire != firing {
-                firing = fire
-                MAMEEngine.shared.input.setVirtual(MYOSD_A.rawValue, held: fire)
+            // A, RT and RB fire (MAME's button 1), rapid while held: the game
+            // takes a new shot per press, and the laser wants many
+            let fire = gp.buttonA.isPressed || gp.rightTrigger.isPressed || gp.rightShoulder.isPressed
+            fireFrames = fire ? fireFrames + 1 : 0
+            let press = fire && (fireFrames - 1) % Self.rapidFirePeriod < Self.rapidFirePeriod / 2
+            if press != firing {
+                firing = press
+                MAMEEngine.shared.input.setVirtual(MYOSD_A.rawValue, held: press)
             }
         }
         if stick != 0 {
@@ -178,33 +193,23 @@ final class PaddleController: @unchecked Sendable {
         // MAME's own dial mapping never takes over (that would make the Vaus jump)
         let goal = target.map { min(max($0, minX), maxX) } ?? vausX
 
-        // learn px/count from the last few frames (window long enough that the
-        // game's reaction delay doesn't matter), ignoring moves into a wall
-        if let last = lastVausX, s.vaus_phase == Int32(ARK3D_VAUS_NORMAL.rawValue) {
-            windowMove += vausX - last
-            windowFrames += 1
-            if windowFrames >= 8 {
-                if abs(windowSteps) >= 8 && vausX > minX + 2 && vausX < maxX - 2 {
-                    let measured = windowMove / Float(windowSteps)
-                    if measured > 0.25 && measured < 4 {
-                        gain = gain * 0.6 + measured * 0.4
-                    }
-                }
-                windowSteps = 0; windowMove = 0; windowFrames = 0
-            }
-        }
-        lastVausX = vausX
-
-        // proportional step, damped for the game's reaction delay
-        let error = goal - vausX
+        // deadbeat: send the whole remaining distance at once, less what the
+        // game hasn't shown yet.  Measured on the real game (desktop MAME, a
+        // Lua script driving the same analog override): exactly 1 px per
+        // count, the whole step at once, visible 2 frames after it's sent,
+        // so at this callback last frame's step is still to come.  A 110 px
+        // move lands in 3 frames, no overshoot; the old half-the-error loop
+        // took 6 or more.  Only while the Vaus is in play: otherwise the game
+        // ignores the spinner and the prediction would run away.
         var step: Int32 = 0
-        if abs(error) >= 1 {
-            step = Int32((error / gain * 0.5).rounded())
-            if step == 0 { step = error / gain > 0 ? 1 : -1 }
+        let error = goal - vausX
+        if s.vaus_phase == Int32(ARK3D_VAUS_NORMAL.rawValue) {
+            let remaining = goal - (vausX + Float(lastStep) * Self.pxPerCount)
+            step = Int32((remaining / Self.pxPerCount).rounded())
             step = min(max(step, -Self.maxStep), Self.maxStep)
         }
+        lastStep = step
         counter = (counter &+ step) & 0xff
-        windowSteps += step
 
         for port in Self.ports {
             myosd_set_analog_input(port, 0xff, counter)

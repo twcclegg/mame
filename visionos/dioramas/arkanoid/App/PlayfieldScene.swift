@@ -887,7 +887,9 @@ final class PlayfieldScene {
             } else if phase == Int32(ARK3D_VAUS_NORMAL.rawValue) && rightEdge < Float(ARK3D_VIEW_W) - 1 {
                 vausFullWidth = max(s.vaus_w, 8)
             }
-            let p = ease(SIMD2(vausX, s.vaus_y), SIMD2(targetX, s.vaus_y), dt: dt, rate: 40)
+            // nearly snapping: the player steers this, so any easing is lag
+            // (rate 40 trailed by ~25 ms); this just smooths the 60 -> 90 Hz steps
+            let p = ease(SIMD2(vausX, s.vaus_y), SIMD2(targetX, s.vaus_y), dt: dt, rate: 140)
             vausX = p.x
             if phase == Int32(ARK3D_VAUS_NORMAL.rawValue) {
                 vausWidth += (max(targetW, 8) - vausWidth) * min(1, dt * 12)

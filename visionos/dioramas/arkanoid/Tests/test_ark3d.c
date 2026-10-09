@@ -288,6 +288,13 @@ static void test_default_calibration(void)
     put_tile(3, 31, 0x185, 0x1c); put_tile(4, 31, 0x184, 0x1c);
     CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
     CHECK_EQ(st.spare_lives, 2);
+    // the icon tiles follow the round's background (round 2: 183 182)
+    put_tile(1, 31, 0x183, 0x1c); put_tile(2, 31, 0x182, 0x1c);
+    put_tile(3, 31, 0x183, 0x1c); put_tile(4, 31, 0x182, 0x1c);
+    CHECK_EQ(ark3d_decode(&in, NULL, NULL, &cal, &st), 0);
+    CHECK_EQ(st.spare_lives, 2);
+    put_tile(1, 31, 0x185, 0x1c); put_tile(2, 31, 0x184, 0x1c);
+    put_tile(3, 31, 0x185, 0x1c); put_tile(4, 31, 0x184, 0x1c);
 
     // the right hatch half open (third of five steps)
     for (int i = 0; i < 4; i++)

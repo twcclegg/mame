@@ -493,13 +493,21 @@ final class BallModel: Entity {
         core.components.set(PointLightComponent(color: UIColor(red: 0.6, green: 0.85, blue: 1, alpha: 1),
                                                 intensity: 400, attenuationRadius: 0.2))
         addChild(core)
-        for i in 0..<6 {
+        // the trail: a continuous streak, one segment per rendered frame back
+        // along the ball's path, tapering and fading (separate dots read as
+        // stutter)
+        let n = Self.trailSegments
+        for i in 0..<n {
+            let k = Float(i) / Float(n)
             var t = UnlitMaterial(color: modern ? UIColor(red: 0.75, green: 0.95, blue: 1, alpha: 1) : UIColor(red: 0.55, green: 0.85, blue: 1, alpha: 1))
-            t.blending = .transparent(opacity: .init(floatLiteral: (modern ? 0.7 : 0.45) * (1 - Float(i) / 6)))
-            let e = ModelEntity(mesh: .generateSphere(radius: Self.radius * px * (0.85 - Float(i) * 0.1)), materials: [t])
+            t.blending = .transparent(opacity: .init(floatLiteral: (modern ? 0.6 : 0.4) * (1 - k) * (1 - k)))
+            let w = Self.radius * 1.5 * px * (1 - 0.8 * k)
+            let e = ModelEntity(mesh: .generateBox(width: w, height: w, depth: 1, cornerRadius: w / 2), materials: [t])
             trail.append(e)
         }
     }
+
+    static let trailSegments = 10
 
     /// The trail lives in the parent's space, so it's added next to the ball.
     func attachTrail(to parent: Entity) { trail.forEach { parent.addChild($0) } }
@@ -512,12 +520,20 @@ final class BallModel: Entity {
             return
         }
         position = p
+        // every rendered frame, moving or not: when the ball stops (held on
+        // the Vaus) the streak shrinks away instead of hanging in the air
         history.insert(p, at: 0)
-        if history.count > trail.count * 2 + 1 { history.removeLast() }
+        if history.count > trail.count + 1 { history.removeLast() }
         for (i, e) in trail.enumerated() {
-            let h = 2 * (i + 1)
-            e.isEnabled = h < history.count
-            if h < history.count { e.position = history[h] }
+            guard i + 1 < history.count else { e.isEnabled = false; continue }
+            let a = history[i], b = history[i + 1]
+            let length = simd_distance(a, b)
+            // a jump (a new ball, a warp) isn't a path
+            e.isEnabled = length > 0.00001 && length < 12 * px
+            guard e.isEnabled else { continue }
+            // look(at:) sets the whole transform, so scale after it
+            e.look(at: b, from: (a + b) / 2, relativeTo: e.parent)
+            e.scale = [1, 1, length]
         }
     }
 }
