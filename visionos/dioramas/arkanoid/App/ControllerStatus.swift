@@ -69,6 +69,9 @@ final class ControllerStatus {
             if gp.dpad.left.isPressed { pressed.append("←") }
             if gp.dpad.right.isPressed { pressed.append("→") }
             parts.append(String(format: "stick %+.2f %+.2f", x, y))
+            if let ds = gp as? GCDualSenseGamepad {
+                parts.append(String(format: "touchpad %+.2f %+.2f", ds.touchpadPrimary.xAxis.value, ds.touchpadPrimary.yAxis.value))
+            }
             parts.append(pressed.isEmpty ? "no buttons" : pressed.joined(separator: " "))
         }
         let line = parts.joined(separator: " · ")

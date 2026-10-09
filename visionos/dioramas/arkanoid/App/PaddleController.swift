@@ -44,6 +44,7 @@ final class PaddleController: @unchecked Sendable {
     private var dragDelta: Float?               // view px since the pinch began (relative, like the spinner)
     private var _sensitivity: Float = 2
     private var _stickMode: StickMode = .speed
+    private var lastTouchX: Float?              // DualSense touchpad x last frame
     private var firing = false                  // button 1 pressed by us (MAME thread)
     private var fireFrames = 0                  // frames A / RT / RB has been held
     private var withholdingFire = false         // A is ours (rapid fire) while the Vaus is in play
@@ -97,6 +98,9 @@ final class PaddleController: @unchecked Sendable {
     static let stickMaxSpeed: Float = 7         // px per frame at full deflection (field: 208 px)
     static let stickCurve: Float = 1.6          // speed ~ deflection^curve
     static let dpadSpeed: Float = 3             // px per frame
+    /// DualSense touchpad as a spinner: Vaus px per unit of touchpad x (it
+    /// spans -1...1, so a full swipe is 2 units), times the sensitivity.
+    static let touchpadPxPerUnit: Float = 55
     static let maxStep: Int32 = 60              // counts per frame (the 8-bit counter must not wrap)
     static let pxPerCount: Float = 1            // the game, measured
     static let ports = [":P1", ":P2"]          // P2 is the cocktail player's spinner
@@ -171,6 +175,19 @@ final class PaddleController: @unchecked Sendable {
             }
             if gp.dpad.left.isPressed { stick = -Self.dpadSpeed }
             if gp.dpad.right.isPressed { stick = Self.dpadSpeed }
+
+            // the DualSense touchpad: a spinner, like the original's knob.  The
+            // Vaus moves with the finger; a jump in x is the finger landing
+            // somewhere new, not a move.
+            if let ds = gp as? GCDualSenseGamepad {
+                let x = ds.touchpadPrimary.xAxis.value, y = ds.touchpadPrimary.yAxis.value
+                // lifting the finger may read as exactly (0, 0): not a move
+                let lifted = x == 0 && y == 0
+                if let last = lastTouchX, !lifted, x != last, abs(x - last) < 0.4 {
+                    stick += (x - last) * Self.touchpadPxPerUnit * gainScale
+                }
+                lastTouchX = lifted ? nil : x
+            }
 
             // A, RT and RB fire (MAME's button 1), rapid while held: the game
             // takes a new shot per press, and the laser wants many
