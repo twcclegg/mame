@@ -67,6 +67,7 @@ struct ControlPanel: View {
                             .monospacedDigit()
                             .frame(width: 44)
                     }
+                    ControllerStatusView()
                 } header: {
                     Text("Controls")
                 } footer: {

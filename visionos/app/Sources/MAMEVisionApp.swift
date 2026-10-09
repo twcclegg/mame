@@ -9,6 +9,7 @@
 // "Theater" moves the picture to a large screen in an immersive space.
 // Game controller combos are listed in GameControllerInput.swift.
 
+import GameController
 import SwiftUI
 
 @main
@@ -21,8 +22,12 @@ struct MAMEVisionApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
+        // both scenes claim the game controller: since visionOS 26 it
+        // otherwise drives the system's UI navigation, and GameController
+        // (GameControllerInput) sees none of its input
         WindowGroup {
             ContentView()
+                .handlesGameControllerEvents(matching: .gamepad)
         }
         .defaultSize(width: 1280, height: 960)
         .onChange(of: scenePhase) { _, phase in
@@ -39,6 +44,7 @@ struct MAMEVisionApp: App {
         // mixed: the screen floats in your room; full: a dark theater
         ImmersiveSpace(id: Self.theaterID) {
             TheaterView()
+                .handlesGameControllerEvents(matching: .gamepad)
         }
         .immersionStyle(selection: $immersion, in: .mixed, .full)
     }
